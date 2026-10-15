@@ -1,0 +1,9 @@
+**/build/
+**/__pycache__/
+*.pyc
+*.uvguix.*
+**/MDK-ARM/Timelapse/
+**/MDK-ARM/RTE/
+**/MXTmpFiles/
+*.bak
+*_save

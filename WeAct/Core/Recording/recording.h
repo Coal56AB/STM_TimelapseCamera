@@ -19,10 +19,11 @@ typedef struct
 
 Store_Result_t Recording_Init(void);
 Store_Result_t Recording_Start(Recording_t *recording, const AVI_Format_t *format, uint16_t fragment_seconds);
-Store_Result_t Recording_Append(Recording_t *recording, const uint8_t *rgb565_be);
+Store_Result_t Recording_Append(Recording_t *recording, const uint8_t *rgb565_be, const char *timestamp);
 Store_Result_t Recording_Stop(Recording_t *recording);
 void Recording_Abort(Recording_t *recording);
 Store_Result_t Recording_Select(uint32_t current, uint32_t *next);
+Store_Result_t Recording_Latest(uint32_t *id);
 void Recording_Path(char path[40], uint32_t id, uint32_t frame, const char *extension);
 
 /** Последовательное виртуальное AVI: предназначено и для файла, и для будущего USB. */

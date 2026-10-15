@@ -34,6 +34,13 @@ static void ButtonTests(void)
   assert(UI_Process(&ui, BUTTON_LONG) == UI_INTERVAL);
   UI_Process(&ui, BUTTON_CLICK); UI_Process(&ui, BUTTON_CLICK);
   assert(UI_Process(&ui, BUTTON_LONG) == UI_FRAGMENT);
+  UI_Process(&ui, BUTTON_CLICK);
+  assert(UI_Process(&ui, BUTTON_LONG) == UI_WIFI);
+  ui.screen = UI_WIFI_SCREEN;
+  assert(UI_Process(&ui, BUTTON_CLICK) == UI_NO_ACTION);
+  assert(UI_Process(&ui, BUTTON_LONG) == UI_NO_ACTION);
+  assert(UI_Process(&ui, BUTTON_DOUBLE) == UI_WIFI_EXIT);
+  ui.screen = UI_MENU;
   UI_Process(&ui, BUTTON_DOUBLE); UI_Process(&ui, BUTTON_CLICK);
   assert(ui.screen == UI_MENU && ui.item == 0);
   for (unsigned i = 0; i < 4; ++i) UI_Process(&ui, BUTTON_CLICK);
@@ -97,13 +104,13 @@ static void FragmentTests(void)
     uint32_t limit = (uint32_t)seconds[option] * 25, size, count, read, total = 0;
     assert(Timelapse_Fragments[option] == seconds[option]);
     assert(Recording_Start(&r, &format, seconds[option]) == STORE_OK);
-    for (uint32_t i = 0; i < limit - 1; ++i) assert(Recording_Append(&r, pixels) == STORE_OK);
+    for (uint32_t i = 0; i < limit - 1; ++i) assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
     assert(Store_Stat("0:/TL/R0000001/F0000001.AVI", &size) == STORE_NOT_FOUND);
-    assert(Recording_Append(&r, pixels) == STORE_OK && r.active && r.fragment == 2 && !r.fragment_frames);
+    assert(Recording_Append(&r, pixels, NULL) == STORE_OK && r.active && r.fragment == 2 && !r.fragment_frames);
     assert(Store_Stat("0:/TL/R0000001/F0000001.AVI", &size) == STORE_OK && size == AVI_Size(&format, limit));
     ReadFile("0:/TL/R0000001/F0000001.AVI", output, AVI_HEADER_SIZE);
     assert(AVI_Parse(output, &parsed, &count) && count == limit);
-    for (unsigned i = 0; i < 3; ++i) assert(Recording_Append(&r, pixels) == STORE_OK);
+    for (unsigned i = 0; i < 3; ++i) assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
     assert(Recording_Stop(&r) == STORE_OK);
     assert(Store_Stat("0:/TL/R0000001/F0000002.AVI", &size) == STORE_OK && size == AVI_Size(&format, 3));
     assert(Recording_StreamOpen(&stream, 1) == STORE_OK && stream.frames == limit + 3);
@@ -139,8 +146,8 @@ static void HotplugTests(void)
   Host_Present = 1; assert(Store_Init() == STORE_OK && Recording_Init() == STORE_OK);
   Recording_t r = {0}; AVI_Format_t format = {4, 2, 25}; uint32_t size;
   assert(Recording_Start(&r, &format, 30) == STORE_OK);
-  for (unsigned i = 0; i < 750; ++i) assert(Recording_Append(&r, pixels) == STORE_OK);
-  assert(Recording_Append(&r, pixels) == STORE_OK);
+  for (unsigned i = 0; i < 750; ++i) assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
+  assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
   Store_File_t stale = r.file;
   Host_Present = 0; assert(Store_Check() != STORE_OK);
   Store_Reset(); Recording_Abort(&r);
@@ -148,7 +155,7 @@ static void HotplugTests(void)
   Host_Present = 1; assert(Store_Init() == STORE_OK && Store_Check() == STORE_OK);
   assert(Store_Stat("0:/TL/R0000001/F0000001.AVI", &size) == STORE_OK && size == AVI_Size(&format, 750));
   assert(Recording_Start(&r, &format, 30) == STORE_OK && r.id == 2);
-  assert(Recording_Append(&r, pixels) == STORE_OK);
+  assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
   assert(Store_Write(&stale, "bad", 3) == STORE_IO && Store_Close(&stale) == STORE_IO);
   assert(Recording_Stop(&r) == STORE_OK);
   Recording_Stream_t stream;
@@ -168,7 +175,7 @@ static void RecordingTests(void)
     pixels[(y * 320 + x) * 2] = (uint8_t)(p >> 8); pixels[(y * 320 + x) * 2 + 1] = (uint8_t)p;
   }
   assert(Recording_Start(&r, &format, 30) == STORE_OK && r.id == 1);
-  for (unsigned i = 0; i < 3; ++i) assert(Recording_Append(&r, pixels) == STORE_OK);
+  for (unsigned i = 0; i < 3; ++i) assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
   Recording_Stop(&r);
   assert(Store_Stat("0:/TL/R0000001/F0000001.AVI", &size) == STORE_OK && size == 691504);
   assert(Recording_StreamOpen(&stream, 1) == STORE_OK);
@@ -198,20 +205,49 @@ static void RecordingTests(void)
   Recording_Stop(&r);
   uint32_t selected; assert(Recording_Select(1, &selected) == STORE_OK && selected == 2);
   assert(Recording_Select(2, &selected) == STORE_OK && selected == 1);
+  assert(Recording_Latest(&selected) == STORE_OK && selected == 2);
   assert(Store_Rename("0:/TL/R0000001/F0000001.AVI", "0:/TL/R0000001/F0000002.AVI") == STORE_OK);
   assert(Recording_StreamOpen(&stream, 1) == STORE_IO); assert(!AVI_Size(&format, 100000));
 }
+static void TimestampTests(void)
+{
+  Fresh();
+  AVI_Format_t format = {160, 120, 25};
+  Recording_t r = {0};
+  memset(pixels, 0x55, 160 * 120 * 2);
+  assert(Recording_Start(&r, &format, 30) == STORE_OK);
+  assert(Recording_Append(&r, pixels, "15.10.2026 12:34:56") == STORE_OK);
+  assert(Recording_Stop(&r) == STORE_OK);
+  uint32_t size = AVI_Size(&format, 1);
+  ReadFile("0:/TL/R0000001/F0000001.AVI", output, size);
+  uint8_t original[480]; AVI_ConvertRow(original, pixels, 160);
+  unsigned changed = 0;
+  for (unsigned y = 0; y < 120; ++y)
+    for (unsigned x = 0; x < 160; ++x)
+    {
+      const uint8_t *pixel = output + AVI_HEADER_SIZE + 8 + (119 - y) * 480 + x * 3;
+      if (memcmp(pixel, original + x * 3, 3))
+      {
+        assert(y >= 105 && y < 118 && x >= 2 && x < 117);
+        assert((pixel[0] == 0 || pixel[0] == 255) && pixel[0] == pixel[1] && pixel[1] == pixel[2]);
+        ++changed;
+      }
+    }
+  assert(changed > 200);
+  for (unsigned i = 0; i < 160 * 120 * 2; ++i) assert(pixels[i] == 0x55);
+}
+
 static void FailureTests(void)
 {
   AVI_Format_t format = {160, 120, 25}; uint8_t original[57856], actual[57856];
   for (int fail_at = 0; fail_at < 40; ++fail_at)
   {
     Recording_t r = {0}; Fresh(); assert(Recording_Start(&r, &format, 30) == STORE_OK);
-    assert(Recording_Append(&r, pixels) == STORE_OK);
+    assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
     assert(Recording_Stop(&r) == STORE_OK);
     ReadFile("0:/TL/R0000001/F0000001.AVI", original, sizeof(original));
     assert(Recording_Start(&r, &format, 30) == STORE_OK);
-    Host_FailWrite = fail_at; Store_Result_t result = Recording_Append(&r, pixels); Host_FailWrite = -1;
+    Host_FailWrite = fail_at; Store_Result_t result = Recording_Append(&r, pixels, NULL); Host_FailWrite = -1;
     assert(result != STORE_OK && !r.active && r.frames == 0);
     assert(Store_Init() == STORE_OK); ReadFile("0:/TL/R0000001/F0000001.AVI", actual, sizeof(actual));
     assert(!memcmp(actual, original, sizeof(actual)));
@@ -228,7 +264,7 @@ int main(void)
   for (unsigned i = 0; i < sizeof(formats); ++i)
   {
     Host_FormatType = formats[i];
-    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests();
+    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests(); TimestampTests();
     printf("PASS: %s: settings, 4 fragment durations, multi-fragment merge, hotplug, 40 write failures\n", names[i]);
   }
   return 0;

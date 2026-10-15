@@ -6,6 +6,8 @@
 #include "ui.h"
 #include "display.h"
 #include "board.h"
+#include "clock.h"
+#include "esp_control.h"
 
 typedef struct
 {
@@ -16,6 +18,9 @@ typedef struct
   uint32_t next_capture, next_sd_check, last_ui, selected, message_at;
   uint8_t sd_ready, camera_ready, capture_pending, save_frame;
   const char *message, *camera_message;
+  Clock_t clock;
+  char frame_time[20];
+  uint8_t esp_wifi;
 } Timelapse_t;
 static Timelapse_t app;
 
@@ -71,7 +76,7 @@ static int Mount(void)
       }
     }
     app.selected = 0;
-    Recording_Select(0, &app.selected);
+    Recording_Latest(&app.selected);
   }
   app.next_sd_check = Board_Time() + 1000;
   return app.sd_ready;
@@ -99,6 +104,19 @@ static void Action(UI_Action_t action)
 {
   Store_Result_t result;
   if (action == UI_NO_ACTION) return;
+  if (action == UI_WIFI)
+  {
+    if (app.recording.active) Stop();
+    Camera_Stop(); app.capture_pending = app.save_frame = 0;
+    app.esp_wifi = 0;
+    app.ui.screen = UI_WIFI_SCREEN;
+    return;
+  }
+  if (action == UI_WIFI_EXIT)
+  {
+    app.ui.screen = UI_PREVIEW;
+    return;
+  }
   if (action == UI_CANCEL)
   {
     Recording_MergeCancel(&app.merge); app.ui.screen = UI_MENU; Message("MERGE CANCELLED"); return;
@@ -132,11 +150,6 @@ static void Action(UI_Action_t action)
     app.selected = app.recording.id; app.next_capture = Board_Time();
     Board_Led(1); Message("RECORDING STARTED");
   }
-  else if (action == UI_SESSION)
-  {
-    result = Recording_Select(app.selected, &app.selected);
-    if (result != STORE_OK) StorageError(result);
-  }
   else if (action == UI_MERGE)
   {
     if (app.recording.active) { Message("STOP RECORDING FIRST"); return; }
@@ -162,6 +175,8 @@ void Timelapse_Init(void)
 void Timelapse_Process(void)
 {
   uint32_t now = Board_Time();
+  Clock_Update(&app.clock, now);
+  app.esp_wifi = EspControl_Process(&app.clock, app.ui.screen == UI_WIFI_SCREEN, now);
   if ((int32_t)(now - app.next_sd_check) >= 0)
   {
     if (app.sd_ready)
@@ -202,7 +217,7 @@ void Timelapse_Process(void)
         }
         if (app.save_frame && app.recording.active)
         {
-          Store_Result_t stored = Recording_Append(&app.recording, frame.rgb565_be);
+          Store_Result_t stored = Recording_Append(&app.recording, frame.rgb565_be, app.frame_time);
           if (stored != STORE_OK) { CardLost(); StorageError(stored); }
           app.ui.dirty = 1;
         }
@@ -218,6 +233,8 @@ void Timelapse_Process(void)
     uint8_t preview = app.ui.screen == UI_PREVIEW;
     if (!app.capture_pending && (due || preview))
     {
+      Clock_Update(&app.clock, now);
+      if (due) Clock_Format(&app.clock, app.frame_time);
       Camera_Result_t result = Camera_Start(now);
       if (result == CAMERA_OK)
       {
@@ -239,7 +256,8 @@ void Timelapse_Process(void)
       app.merge.active ? (uint32_t)((uint64_t)app.merge.stream.position * 100 / app.merge.stream.size) : 0,
       Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1],
       app.recording.active, message, Timelapse_Fragments[app.config.fragment],
-      app.recording.frames / TIMELAPSE_PLAYBACK_FPS};
+      app.recording.frames / TIMELAPSE_PLAYBACK_FPS,
+      app.esp_wifi};
     UI_Draw(&app.ui, &view);
     app.last_ui = Board_Time();
   }

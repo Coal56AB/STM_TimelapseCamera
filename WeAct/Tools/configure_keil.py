@@ -67,4 +67,16 @@ if components is not None:
         if component.get('Cclass') == 'CMSIS' and component.get('Cgroup') == 'CORE':
             components.remove(component)
 tree.write(project, encoding='utf-8', xml_declaration=True)
+
+# CDC ACM devices can advertise protocol 0 and a non-zero data subclass.
+# Apply after CubeMX recopies the stock middleware; keep its class/ACM checks.
+cdc = root / 'Middlewares/ST/STM32_USB_Host_Library/Class/CDC/Src/usbh_cdc.c'
+source = cdc.read_text(encoding='utf-8')
+for old, new in [
+    ('ABSTRACT_CONTROL_MODEL, COMMON_AT_COMMAND);', 'ABSTRACT_CONTROL_MODEL, 0xFFU); /* Match CDC ACM with or without AT protocol. */'),
+    ('RESERVED, NO_CLASS_SPECIFIC_PROTOCOL_CODE);', '0xFFU, NO_CLASS_SPECIFIC_PROTOCOL_CODE); /* Data subclass is device-specific. */'),
+]:
+    assert old in source or new in source, 'Unexpected CDC middleware version'
+    source = source.replace(old, new)
+cdc.write_text(source, encoding='utf-8')
 print(project)

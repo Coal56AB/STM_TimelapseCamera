@@ -1,4 +1,5 @@
 #include "recording.h"
+#include "image_text.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -63,6 +64,15 @@ Store_Result_t Recording_Select(uint32_t current, uint32_t *next)
   return *next ? STORE_OK : STORE_NOT_FOUND;
 }
 
+Store_Result_t Recording_Latest(uint32_t *id)
+{
+  Scan_t scan = {0};
+  Store_Result_t result = Store_Scan(RECORDING_ROOT, ScanSession, &scan);
+  if (result != STORE_OK) return result;
+  *id = scan.max;
+  return *id ? STORE_OK : STORE_NOT_FOUND;
+}
+
 Store_Result_t Recording_Start(Recording_t *r, const AVI_Format_t *format, uint16_t fragment_seconds)
 {
   Scan_t scan = {0};
@@ -113,7 +123,7 @@ static Store_Result_t FinishFragment(Recording_t *r)
   return result;
 }
 
-Store_Result_t Recording_Append(Recording_t *r, const uint8_t *rgb)
+Store_Result_t Recording_Append(Recording_t *r, const uint8_t *rgb, const char *timestamp)
 {
   char path[40];
   uint8_t header[AVI_HEADER_SIZE], row[960], chunk[8];
@@ -136,6 +146,7 @@ Store_Result_t Recording_Append(Recording_t *r, const uint8_t *rgb)
   for (uint16_t y = r->format.height; y > 0; --y)
   {
     AVI_ConvertRow(row, rgb + (y - 1U) * r->format.width * 2U, r->format.width);
+    ImageText_Row(row, r->format.width, r->format.height, (uint16_t)(y - 1U), timestamp);
     result = Store_Write(&r->file, row, stride);
     if (result != STORE_OK) goto failed;
   }

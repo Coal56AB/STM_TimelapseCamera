@@ -33,6 +33,7 @@
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
+#include "usb_host.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -64,6 +65,8 @@
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void MX_USB_HOST_Process(void);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -115,6 +118,7 @@ int main(void)
   MX_I2C1_Init();
   MX_SPI4_Init();
   MX_TIM1_Init();
+  MX_USB_HOST_Init();
   /* USER CODE BEGIN 2 */
   Board_Init();
   Timelapse_Init();
@@ -125,6 +129,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+    MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
     Timelapse_Process();

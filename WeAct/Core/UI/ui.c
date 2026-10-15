@@ -7,6 +7,7 @@ UI_Action_t UI_Process(UI_t *ui, Button_Event_t event)
 {
   if (event == BUTTON_NONE) return UI_NO_ACTION;
   ui->dirty = 1;
+  if (ui->screen == UI_WIFI_SCREEN) return event == BUTTON_DOUBLE ? UI_WIFI_EXIT : UI_NO_ACTION;
   if (ui->screen == UI_MERGING) return event == BUTTON_DOUBLE ? UI_CANCEL : UI_NO_ACTION;
   if (ui->screen == UI_CONFIRM)
   {
@@ -50,10 +51,18 @@ void UI_Draw(UI_t *ui, const UI_View_t *v)
     if (v->fragment_seconds < 60) snprintf(text, sizeof(text), "FRAGMENT: %u SEC", v->fragment_seconds);
     else snprintf(text, sizeof(text), "FRAGMENT: %u MIN", v->fragment_seconds / 60);
     Display_Line(2, text, ui->item == 2);
-    snprintf(text, sizeof(text), "SESSION: R%07lu", (unsigned long)v->session);
-    Display_Line(3, text, ui->item == 3);
+    Display_Line(3, "ESP WIFI: ENTER", ui->item == 3);
     Display_Line(4, "MERGE SESSION", ui->item == 4);
     Display_Line(5, v->message ? v->message : "HOLD:SET DOUBLE:BACK", 0);
+  }
+  else if (ui->screen == UI_WIFI_SCREEN)
+  {
+    Display_Line(0, v->wifi_ready ? "WIFI: ON" : "WAITING FOR ESP", 0);
+    Display_Line(1, "TimelapseCamera", 0);
+    Display_Line(2, "PASS: timelapse32", 0);
+    Display_Line(3, "192.168.4.1", 0);
+    Display_Line(4, "SET DATE / TIME", 0);
+    Display_Line(5, "DOUBLE: WIFI OFF", 0);
   }
   else if (ui->screen == UI_CONFIRM)
   {

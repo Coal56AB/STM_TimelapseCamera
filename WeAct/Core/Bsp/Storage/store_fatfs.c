@@ -87,13 +87,26 @@ Store_Result_t Store_Close(Store_File_t *file)
 }
 Store_Result_t Store_Stat(const char *path, uint32_t *size)
 {
+  uint64_t value;
+  Store_Result_t result = Store_Stat64(path, &value);
+  if (result == STORE_OK && value > UINT32_MAX) return STORE_FULL;
+  if (result == STORE_OK) *size = (uint32_t)value;
+  return result;
+}
+Store_Result_t Store_Stat64(const char *path, uint64_t *size)
+{
   FILINFO info;
   FRESULT result = f_stat(path, &info);
-  if (result == FR_OK && info.fsize > UINT32_MAX) return STORE_FULL;
-  if (result == FR_OK) *size = (uint32_t)info.fsize;
+  if (result == FR_OK) *size = info.fsize;
   return Result(result);
 }
 Store_Result_t Store_Mkdir(const char *path) { return Result(f_mkdir(path)); }
+Store_Result_t Store_FileLimit(uint64_t *bytes)
+{
+  if (!volume.fs_type) return STORE_IO;
+  *bytes = volume.fs_type == FS_EXFAT ? UINT64_MAX : UINT32_MAX;
+  return STORE_OK;
+}
 Store_Result_t Store_Rename(const char *from, const char *to) { return Result(f_rename(from, to)); }
 Store_Result_t Store_Remove(const char *path) { return Result(f_unlink(path)); }
 Store_Result_t Store_Scan(const char *path, Store_Visitor_t visitor, void *context)

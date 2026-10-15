@@ -1,6 +1,6 @@
 #pragma once
 #include "WifiAccessPoint.h"
-#include "TimeLink.h"
+#include "CameraLink.h"
 #include "Web.h"
 
 class App {
@@ -9,6 +9,6 @@ class App {
   void update();
  private:
   WifiAccessPoint network_;
-  TimeLink link_;
+  CameraLink link_;
   Web web_{link_};
 };

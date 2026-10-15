@@ -7,7 +7,8 @@ typedef enum { UI_NO_ACTION, UI_INTERVAL, UI_RESOLUTION, UI_FRAGMENT, UI_WIFI, U
 typedef struct { UI_Screen_t screen; uint8_t item, dirty; } UI_t;
 typedef struct
 {
-  uint32_t interval, session, frames, percent;
+  const char *interval;
+  uint32_t session, frames, percent;
   uint16_t width, height;
   uint8_t recording;
   const char *message;

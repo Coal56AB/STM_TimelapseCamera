@@ -22,10 +22,12 @@ Store_Result_t Store_Write(Store_File_t *file, const void *data, uint32_t length
 Store_Result_t Store_Seek(Store_File_t *file, uint32_t offset);
 Store_Result_t Store_Sync(Store_File_t *file);
 Store_Result_t Store_Close(Store_File_t *file);
+Store_Result_t Store_Stat64(const char *path, uint64_t *size);
 Store_Result_t Store_Stat(const char *path, uint32_t *size);
 Store_Result_t Store_Mkdir(const char *path);
 Store_Result_t Store_Rename(const char *from, const char *to);
 Store_Result_t Store_Remove(const char *path);
 Store_Result_t Store_Scan(const char *path, Store_Visitor_t visitor, void *context);
 Store_Result_t Store_Free(uint64_t *bytes);
+Store_Result_t Store_FileLimit(uint64_t *bytes);
 #endif

@@ -1,5 +1,6 @@
 #include "recording.h"
 #include "image_text.h"
+#include "avi_extended.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -36,8 +37,21 @@ static int ScanFrame(void *context, const char *name, uint8_t directory)
   {
     ++scan->count;
     if (id > scan->max) scan->max = id;
+    if (id > scan->after && (!scan->next || id < scan->next)) scan->next = id;
   }
   return 1;
+}
+
+Store_Result_t Recording_NextFragment(uint32_t id, uint32_t after, uint32_t *next)
+{
+  Scan_t scan = {0};
+  char path[40];
+  if (!id || id > RECORDING_MAX_ID) return STORE_NOT_FOUND;
+  scan.after = after;
+  Recording_Path(path, id, 0, NULL);
+  Store_Result_t result = Store_Scan(path, ScanFrame, &scan);
+  *next = scan.next;
+  return result;
 }
 
 void Recording_Path(char path[40], uint32_t id, uint32_t frame, const char *extension)
@@ -196,6 +210,7 @@ static Store_Result_t OpenSource(Recording_Stream_t *s, uint32_t fragment)
   if (result != STORE_OK) return result;
   if (Store_Read(&s->source, header, sizeof(header)) != STORE_OK ||
       !AVI_Parse(header, &format, &count) || size != AVI_Size(&format, count)) return STORE_IO;
+  if (format.width > 320 || format.height > 240) return STORE_IO;
   if (fragment == 1) s->format = format;
   if (format.width != s->format.width || format.height != s->format.height || format.fps != s->format.fps) return STORE_IO;
   AVI_ChunkHeader(expected, &format);
@@ -234,34 +249,55 @@ Store_Result_t Recording_StreamOpen(Recording_Stream_t *s, uint32_t id)
     if (result != STORE_OK) { Recording_StreamClose(s); return result; }
     if (s->source_frames > UINT32_MAX - s->frames) { Recording_StreamClose(s); return STORE_FULL; }
     s->frames += s->source_frames;
-    if (!AVI_Size(&s->format, s->frames)) { Recording_StreamClose(s); return STORE_FULL; }
   }
   s->size = AVI_Size(&s->format, s->frames);
-  if (!AVI_Header(s->header, &s->format, s->frames)) { Recording_StreamClose(s); return STORE_FULL; }
+  s->extended = !s->size;
+  if (s->size) AVI_Header(s->header, &s->format, s->frames);
+  else s->size = AVI_ExtendedSize(&s->format, s->frames);
   Store_Close(&s->source); s->opened_fragment = 0; s->source_frames = 0; s->source_first = 0;
   return STORE_OK;
 }
 
 Store_Result_t Recording_StreamRead(Recording_Stream_t *s, void *data, uint32_t capacity, uint32_t *read)
 {
-  uint8_t *out = data, small[16];
+  uint8_t *out = data, small[224];
   uint32_t chunk = AVI_FrameBytes(&s->format) + 8;
-  uint32_t index_at = AVI_HEADER_SIZE + chunk * s->frames;
+  uint64_t index_at = AVI_HEADER_SIZE + (uint64_t)chunk * s->frames;
   *read = 0;
   if (!s->size) return STORE_IO;
   while (capacity && s->position < s->size)
   {
-    uint32_t available, offset;
+    uint32_t available, offset = 0, frame = 0;
     const uint8_t *memory = NULL;
-    if (s->position < AVI_HEADER_SIZE)
+    if (s->extended)
     {
-      available = AVI_HEADER_SIZE - s->position;
-      memory = s->header + s->position;
+      if (AVI_ExtendedRegion(&s->format, s->frames, s->position, small, &available, &frame, &offset)) memory = small;
+    }
+    else if (s->position < AVI_HEADER_SIZE)
+    {
+      available = AVI_HEADER_SIZE - (uint32_t)s->position;
+      memory = s->header + (uint32_t)s->position;
     }
     else if (s->position < index_at)
     {
-      uint32_t frame = (s->position - AVI_HEADER_SIZE) / chunk;
-      offset = (s->position - AVI_HEADER_SIZE) % chunk;
+      frame = (uint32_t)((s->position - AVI_HEADER_SIZE) / chunk);
+      offset = (uint32_t)((s->position - AVI_HEADER_SIZE) % chunk);
+      available = chunk - offset;
+    }
+    else if (s->position < index_at + 8)
+    {
+      AVI_IndexHeader(small, s->frames);
+      offset = (uint32_t)(s->position - index_at);
+      memory = small + offset; available = 8 - offset;
+    }
+    else
+    {
+      offset = (uint32_t)(s->position - index_at - 8);
+      AVI_IndexEntry(small, &s->format, offset / 16);
+      memory = small + offset % 16; available = 16 - offset % 16;
+    }
+    if (!memory)
+    {
       Store_Result_t result;
       if (!s->opened_fragment)
       {
@@ -277,28 +313,12 @@ Store_Result_t Recording_StreamRead(Recording_Stream_t *s, void *data, uint32_t 
       uint32_t source_offset = AVI_HEADER_SIZE + (frame - s->source_first) * chunk;
       if (offset == 0)
       {
-        uint8_t actual[8];
-        AVI_ChunkHeader(small, &s->format);
+        uint8_t actual[8]; AVI_ChunkHeader(small, &s->format);
         if (Store_Seek(&s->source, source_offset) != STORE_OK ||
             Store_Read(&s->source, actual, 8) != STORE_OK || memcmp(actual, small, 8)) return STORE_IO;
       }
       result = Store_Seek(&s->source, source_offset + offset);
       if (result != STORE_OK) return result;
-      available = chunk - offset;
-    }
-    else if (s->position < index_at + 8)
-    {
-      AVI_IndexHeader(small, s->frames);
-      offset = s->position - index_at;
-      memory = small + offset;
-      available = 8 - offset;
-    }
-    else
-    {
-      offset = s->position - index_at - 8;
-      AVI_IndexEntry(small, &s->format, offset / 16);
-      memory = small + offset % 16;
-      available = 16 - offset % 16;
     }
     if (available > capacity) available = capacity;
     if (memory) memcpy(out, memory, available);
@@ -322,17 +342,18 @@ void Recording_StreamClose(Recording_Stream_t *s)
 Store_Result_t Recording_MergeStart(Recording_Merge_t *m, uint32_t id)
 {
   char path[40];
-  uint32_t size;
-  uint64_t free_bytes;
+  uint64_t size, free_bytes, limit;
   Store_Result_t result;
   if (m->active) return STORE_IO;
   Recording_Path(path, id, 0, "AVI");
-  result = Store_Stat(path, &size);
+  result = Store_Stat64(path, &size);
   if (result == STORE_OK) return STORE_EXISTS;
   if (result != STORE_NOT_FOUND) return result;
   result = Recording_StreamOpen(&m->stream, id);
   if (result != STORE_OK) return result;
-  result = Store_Free(&free_bytes);
+  result = Store_FileLimit(&limit);
+  if (result == STORE_OK && m->stream.size > limit) result = STORE_FULL;
+  if (result == STORE_OK) result = Store_Free(&free_bytes);
   if (result == STORE_OK && free_bytes < m->stream.size + 4096ULL) result = STORE_FULL;
   if (result != STORE_OK) { Recording_StreamClose(&m->stream); return result; }
   Recording_Path(path, id, 0, "TMP");

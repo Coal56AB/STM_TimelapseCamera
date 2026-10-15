@@ -24,14 +24,17 @@ Store_Result_t Recording_Stop(Recording_t *recording);
 void Recording_Abort(Recording_t *recording);
 Store_Result_t Recording_Select(uint32_t current, uint32_t *next);
 Store_Result_t Recording_Latest(uint32_t *id);
+Store_Result_t Recording_NextFragment(uint32_t id, uint32_t after, uint32_t *next);
 void Recording_Path(char path[40], uint32_t id, uint32_t frame, const char *extension);
 
-/** Последовательное виртуальное AVI: предназначено и для файла, и для будущего USB. */
+/** Последовательное виртуальное AVI для объединения на SD и передачи по USB. */
 typedef struct
 {
   AVI_Format_t format;
   Store_File_t source;
-  uint32_t id, frames, size, position, opened_fragment;
+  uint32_t id, frames, opened_fragment;
+  uint64_t size, position;
+  uint8_t extended;
   uint32_t fragments, source_frames, source_first;
   uint8_t header[AVI_HEADER_SIZE];
 } Recording_Stream_t;

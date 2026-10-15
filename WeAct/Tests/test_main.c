@@ -1,5 +1,7 @@
 #include "button.h"
 #include "recording.h"
+#include "download.h"
+#include "avi_extended.h"
 #include "timelapse_config.h"
 #include "ui.h"
 #include "display.h"
@@ -70,6 +72,9 @@ static void StatusTests(void)
 static void Fresh(void)
 {
   Host_Format(); assert(Store_Init() == STORE_OK); assert(Recording_Init() == STORE_OK);
+  uint64_t file_limit;
+  assert(Store_FileLimit(&file_limit) == STORE_OK);
+  assert(file_limit == (Host_FormatType == FM_EXFAT ? UINT64_MAX : UINT32_MAX));
   if (Host_FormatType == FM_EXFAT)
   {
     uint64_t free_bytes;
@@ -92,6 +97,71 @@ static void SettingsTests(void)
   Store_File_t file = {0}; assert(Store_Open(&file, "0:/TL/SET0.BIN", STORE_CREATE) == STORE_OK);
   assert(Store_Write(&file, "broken", 6) == STORE_OK); assert(Store_Close(&file) == STORE_OK);
   assert(Timelapse_ConfigLoad(&loaded) == STORE_OK && loaded.interval == 3 && loaded.generation == 1 && loaded.fragment == 1);
+  uint16_t fraction = 0; uint32_t deadline = UINT32_MAX - 100;
+  uint32_t start = deadline;
+  for (unsigned i = 0; i < 240; ++i) deadline = Timelapse_Deadline(0, deadline, deadline, &fraction);
+  assert(deadline - start == 10000 && fraction == 0);
+  assert(Timelapse_Deadline(1, 0, 0, &fraction) == 100);
+  assert(Timelapse_Deadline(2, 0, 0, &fraction) == 1000);
+  assert(Timelapse_Deadline(8, 0, 0, &fraction) == 300000);
+  assert(Timelapse_Deadline(1, 0, 550, &fraction) == 600);
+  const uint8_t legacy[][16] = {
+    {0x54,0x4c,0x43,0x32,0x07,0x00,0x00,0x00,0x00,0x01,0x02,0x00,0x6f,0x79,0x81,0xd4},
+    {0x54,0x4c,0x43,0x32,0x07,0x00,0x00,0x00,0x06,0x01,0x02,0x00,0xb3,0x26,0xea,0xf1},
+    {0x54,0x4c,0x43,0x32,0x07,0x00,0x00,0x00,0x07,0x01,0x02,0x00,0xd6,0x41,0x56,0x49}
+  };
+  for (unsigned i = 0; i < 3; ++i)
+  {
+    Fresh(); file = (Store_File_t){0};
+    assert(Store_Open(&file, "0:/TL/SET1.BIN", STORE_CREATE) == STORE_OK);
+    assert(Store_Write(&file, legacy[i], 16) == STORE_OK && Store_Close(&file) == STORE_OK);
+    assert(Timelapse_ConfigLoad(&loaded) == STORE_OK && loaded.interval == (i ? 8 : 3) && loaded.fragment == 2);
+    loaded.interval = 0;
+    assert(Timelapse_ConfigSave(&loaded) == STORE_OK && Timelapse_ConfigLoad(&cfg) == STORE_OK && cfg.interval == 0);
+  }
+}
+static void DownloadTests(void)
+{
+  Fresh(); AVI_Format_t format = {4, 2, 25}; Recording_t r = {0};
+  assert(Recording_Start(&r, &format, 30) == STORE_OK);
+  for (unsigned i = 0; i < 752; ++i) assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
+  assert(Recording_Stop(&r) == STORE_OK);
+  Download_t download = {0}; char header[96], command[96]; uint8_t block[4096]; uint32_t length;
+  Download_Command(&download, "FILES 1 LIST 0", 0, 1, header, block, &length);
+  block[length] = 0; assert(strstr((char *)block, "\"fragments\":2"));
+  Download_Command(&download, "FILES 2 LIST 1", 0, 1, header, block, &length);
+  assert(length == 4 && !memcmp(block, "null", 4));
+  Download_Command(&download, "FILES 3 PARTS 1 0", 0, 1, header, block, &length);
+  block[length] = 0; assert(strstr((char *)block, "\"id\":1"));
+  Download_Command(&download, "FILES 4 OPEN 1 0", 0, 1, header, block, &length);
+  assert(download.active && download.size == AVI_Size(&format, 752));
+  Recording_Stream_t expected; assert(Recording_StreamOpen(&expected, 1) == STORE_OK);
+  uint8_t bytes[4096]; uint32_t read;
+  while (download.position < download.size)
+  {
+    snprintf(command, sizeof(command), "FILES 5 READ %lu %llu", (unsigned long)download.token, (unsigned long long)download.position);
+    Download_Command(&download, command, 10, 1, header, block, &length);
+    assert(length && Recording_StreamRead(&expected, bytes, length, &read) == STORE_OK && read == length);
+    assert(!memcmp(bytes, block, length));
+  }
+  Recording_StreamClose(&expected);
+  uint32_t token = download.token;
+  Download_Command(&download, "FILES 6 OPEN 1 2", 20, 1, header, block, &length);
+  assert(download.active && download.token != token && download.size == AVI_Size(&format, 2));
+  snprintf(command, sizeof(command), "FILES 7 READ %lu 0", (unsigned long)download.token);
+  Download_Command(&download, command, 30, 1, header, block, &length);
+  ReadFile("0:/TL/R0000001/F0000002.AVI", bytes, length); assert(!memcmp(block, bytes, length));
+  Download_Process(&download, 1, 10030); assert(!download.active);
+  Download_Command(&download, "FILES 8 OPEN 1 0", 0, 1, header, block, &length);
+  assert(download.active); Download_Process(&download, 0, 1); assert(!download.active);
+  Download_Command(&download, "FILES 9 OPEN 1 0", 0, 0, header, block, &length);
+  assert(!download.active && !strncmp(header, "FILE 9 3 ", 9));
+  Download_Command(&download, "FILES 10 OPEN 1 0", 0, 1, header, block, &length);
+  assert(download.active); Host_Present = 0; Store_Reset();
+  snprintf(command, sizeof(command), "FILES 11 READ %lu 0", (unsigned long)download.token);
+  Download_Command(&download, command, 1, 1, header, block, &length);
+  assert(!length && !download.active);
+  Host_Present = 1; assert(Store_Init() == STORE_OK);
 }
 static void FragmentTests(void)
 {
@@ -236,6 +306,53 @@ static void TimestampTests(void)
   assert(changed > 200);
   for (unsigned i = 0; i < 160 * 120 * 2; ++i) assert(pixels[i] == 0x55);
 }
+static void LargeSessionTests(void)
+{
+  if (Host_FormatType != FM_EXFAT) return;
+  Fresh(); AVI_Format_t format = {320, 240, 25};
+  assert(Store_Mkdir("0:/TL/R0000001") == STORE_OK);
+  uint8_t header[224], chunk[8], entry[16];
+  uint32_t bytes = AVI_FrameBytes(&format) + 8;
+  for (uint32_t part = 1; part <= 3; ++part)
+  {
+    Store_File_t file = {0}; char path[40]; Recording_Path(path, 1, part, "AVI");
+    assert(Store_Open(&file, path, STORE_CREATE) == STORE_OK);
+    assert(AVI_Header(header, &format, 7500) && Store_Write(&file, header, sizeof(header)) == STORE_OK);
+    AVI_ChunkHeader(chunk, &format);
+    for (uint32_t frame = 0; frame < 7500; ++frame)
+    {
+      uint32_t marker = (part - 1) * 7500 + frame;
+      assert(Store_Seek(&file, AVI_HEADER_SIZE + frame * bytes) == STORE_OK);
+      assert(Store_Write(&file, chunk, 8) == STORE_OK && Store_Write(&file, &marker, 4) == STORE_OK);
+    }
+    assert(Store_Seek(&file, AVI_HEADER_SIZE + 7500 * bytes) == STORE_OK);
+    AVI_IndexHeader(chunk, 7500); assert(Store_Write(&file, chunk, 8) == STORE_OK);
+    for (uint32_t frame = 0; frame < 7500; ++frame)
+    {
+      AVI_IndexEntry(entry, &format, frame); assert(Store_Write(&file, entry, 16) == STORE_OK);
+    }
+    assert(Store_Close(&file) == STORE_OK);
+  }
+  Recording_Stream_t stream;
+  assert(Recording_StreamOpen(&stream, 1) == STORE_OK && stream.extended && stream.size > UINT32_MAX);
+  uint32_t seen = 0;
+  while (stream.position < stream.size)
+  {
+    uint32_t length, frame, offset, read; uint8_t expected[224], actual[224];
+    int memory = AVI_ExtendedRegion(&format, 22500, stream.position, expected, &length, &frame, &offset);
+    uint32_t take = memory ? length : 12;
+    assert(Recording_StreamRead(&stream, actual, take, &read) == STORE_OK && read == take);
+    if (memory) assert(!memcmp(actual, expected, take));
+    else
+    {
+      uint32_t marker; memcpy(&marker, actual + 8, 4);
+      assert(!memcmp(actual, "00db", 4) && marker == frame && frame == seen++);
+      stream.position += length - take;
+    }
+  }
+  assert(seen == 22500); Recording_StreamClose(&stream);
+  puts("PASS: three 5-minute QVGA fragments on exFAT, >4 GiB virtual AVI, every source frame and all segment transitions");
+}
 
 static void FailureTests(void)
 {
@@ -264,8 +381,8 @@ int main(void)
   for (unsigned i = 0; i < sizeof(formats); ++i)
   {
     Host_FormatType = formats[i];
-    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests(); TimestampTests();
-    printf("PASS: %s: settings, 4 fragment durations, multi-fragment merge, hotplug, 40 write failures\n", names[i]);
+    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests(); TimestampTests(); DownloadTests(); LargeSessionTests();
+    printf("PASS: %s: settings/migration/capture periods, 4 fragment durations, merge/download, hotplug, 40 write failures\n", names[i]);
   }
   return 0;
 }

@@ -44,7 +44,7 @@ void UI_Draw(UI_t *ui, const UI_View_t *v)
   }
   else if (ui->screen == UI_MENU)
   {
-    snprintf(text, sizeof(text), "INTERVAL: %lu SEC", (unsigned long)v->interval);
+    snprintf(text, sizeof(text), "INTERVAL: %s", v->interval);
     Display_Line(0, text, ui->item == 0);
     snprintf(text, sizeof(text), "SIZE: %ux%u", v->width, v->height);
     Display_Line(1, text, ui->item == 1);
@@ -61,7 +61,7 @@ void UI_Draw(UI_t *ui, const UI_View_t *v)
     Display_Line(1, "TimelapseCamera", 0);
     Display_Line(2, "PASS: timelapse32", 0);
     Display_Line(3, "192.168.4.1", 0);
-    Display_Line(4, "SET DATE / TIME", 0);
+    Display_Line(4, "VIDEO / DATE / TIME", 0);
     Display_Line(5, "DOUBLE: WIFI OFF", 0);
   }
   else if (ui->screen == UI_CONFIRM)

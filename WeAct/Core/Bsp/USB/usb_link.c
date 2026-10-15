@@ -4,7 +4,7 @@
 #include <string.h>
 extern USBH_HandleTypeDef hUsbHostHS;
 extern ApplicationTypeDef Appli_state;
-static uint8_t rx[64], tx[32];
+static uint8_t rx[64], tx[4192];
 static char assembled[96];
 static uint16_t received, cursor, length;
 static uint8_t rx_pending, tx_pending, discard;
@@ -46,10 +46,15 @@ int UsbLink_ReadLine(char line[96])
 }
 int UsbLink_SendLine(const char *line)
 {
+  return UsbLink_SendPacket(line, NULL, 0);
+}
+int UsbLink_SendPacket(const char *line, const uint8_t *data, uint32_t length)
+{
   size_t n = strlen(line);
-  if (Appli_state != APPLICATION_READY || tx_pending || n >= sizeof(tx)) return 0;
+  if (Appli_state != APPLICATION_READY || tx_pending || n + length > sizeof(tx)) return 0;
   memcpy(tx, line, n);
-  tx_pending = USBH_CDC_Transmit(&hUsbHostHS, tx, (uint32_t)n) == USBH_OK;
+  if (length) memcpy(tx + n, data, length);
+  tx_pending = USBH_CDC_Transmit(&hUsbHostHS, tx, (uint32_t)n + length) == USBH_OK;
   return tx_pending;
 }
 void USBH_CDC_ReceiveCallback(USBH_HandleTypeDef *host)

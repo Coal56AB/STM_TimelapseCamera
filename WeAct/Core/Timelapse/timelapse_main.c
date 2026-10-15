@@ -21,6 +21,7 @@ typedef struct
   Clock_t clock;
   char frame_time[20];
   uint8_t esp_wifi;
+  uint16_t capture_fraction;
 } Timelapse_t;
 static Timelapse_t app;
 
@@ -50,7 +51,7 @@ static void StorageError(Store_Result_t result)
 {
   switch (result)
   {
-    case STORE_FULL: Message("NO SPACE / AVI LIMIT"); break;
+    case STORE_FULL: Message("NO SPACE / FILE LIMIT"); break;
     case STORE_EXISTS: Message("ALL.AVI EXISTS"); break;
     case STORE_NOT_FOUND: Message("NO RECORDING FOUND"); break;
     default: Message("SD ERROR"); break;
@@ -147,7 +148,7 @@ static void Action(UI_Action_t action)
     result = Recording_Start(&app.recording, &format, Timelapse_Fragments[app.config.fragment]);
     if (result != STORE_OK) { StorageError(result); return; }
     Camera_Stop(); app.capture_pending = 0;
-    app.selected = app.recording.id; app.next_capture = Board_Time();
+    app.selected = app.recording.id; app.next_capture = Board_Time(); app.capture_fraction = 0;
     Board_Led(1); Message("RECORDING STARTED");
   }
   else if (action == UI_MERGE)
@@ -165,7 +166,7 @@ void Timelapse_Init(void)
 {
   UI_Init(&app.ui);
   Display_Init();
-  app.config = (Timelapse_Config_t){0, 1, 0, 3};
+  app.config = (Timelapse_Config_t){3, 1, 0, 3};
   Mount();
   Camera_Result_t result = Camera_Init(Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1]);
   CameraStatus(result);
@@ -176,7 +177,7 @@ void Timelapse_Process(void)
 {
   uint32_t now = Board_Time();
   Clock_Update(&app.clock, now);
-  app.esp_wifi = EspControl_Process(&app.clock, app.ui.screen == UI_WIFI_SCREEN, now);
+  app.esp_wifi = EspControl_Process(&app.clock, app.ui.screen == UI_WIFI_SCREEN, app.sd_ready, now);
   if ((int32_t)(now - app.next_sd_check) >= 0)
   {
     if (app.sd_ready)
@@ -240,7 +241,7 @@ void Timelapse_Process(void)
       {
         app.capture_pending = 1; app.save_frame = due;
         /* Пропущенные интервалы не порождают серию кадров без временного промежутка. */
-        if (due) app.next_capture = now + Timelapse_Intervals[app.config.interval] * 1000U;
+        if (due) app.next_capture = Timelapse_Deadline(app.config.interval, app.next_capture, now, &app.capture_fraction);
       }
       else { CameraStatus(result); Stop(); Message(app.camera_message); }
     }

@@ -8,6 +8,7 @@
 #include "board.h"
 #include "clock.h"
 #include "esp_control.h"
+#include "media_memory.h"
 
 typedef struct
 {
@@ -52,7 +53,7 @@ static void StorageError(Store_Result_t result)
   switch (result)
   {
     case STORE_FULL: Message("NO SPACE / FILE LIMIT"); break;
-    case STORE_EXISTS: Message("ALL.AVI EXISTS"); break;
+    case STORE_EXISTS: Message("MERGED FILE EXISTS"); break;
     case STORE_NOT_FOUND: Message("NO RECORDING FOUND"); break;
     default: Message("SD ERROR"); break;
   }
@@ -144,7 +145,7 @@ static void Action(UI_Action_t action)
   else if (action == UI_RECORD)
   {
     if (!app.camera_ready) { Message(app.camera_message); return; }
-    AVI_Format_t format = {Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1], TIMELAPSE_PLAYBACK_FPS, AVI_MJPEG};
+    AVI_Format_t format = {Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1], TIMELAPSE_PLAYBACK_FPS, AVI_H264};
     result = Recording_Start(&app.recording, &format, Timelapse_Fragments[app.config.fragment]);
     if (result != STORE_OK) { StorageError(result); return; }
     Camera_Stop(); app.capture_pending = 0;
@@ -164,6 +165,7 @@ static void Action(UI_Action_t action)
 
 void Timelapse_Init(void)
 {
+  Camera_SetBuffer(MEDIA_CAPTURE_BUFFER);
   UI_Init(&app.ui);
   Display_Init();
   app.config = (Timelapse_Config_t){3, 1, 0, 3};
@@ -200,7 +202,8 @@ void Timelapse_Process(void)
     if (result != STORE_OK || !app.merge.active)
     {
       app.ui.screen = UI_MENU;
-      if (result == STORE_OK) Message("SAVED: ALL.AVI"); else StorageError(result);
+      if (result == STORE_OK) Message(app.merge.stream.format.codec == AVI_H264 ? "SAVED: ALL.MP4" : "SAVED: ALL.AVI");
+      else StorageError(result);
     }
   }
   else if (app.camera_ready)
@@ -258,7 +261,7 @@ void Timelapse_Process(void)
       Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1],
       app.recording.active, message, Timelapse_Fragments[app.config.fragment],
       app.recording.frames / TIMELAPSE_PLAYBACK_FPS,
-      app.esp_wifi};
+      app.esp_wifi, EspControl_Ssid(), EspControl_Password()};
     UI_Draw(&app.ui, &view);
     app.last_ui = Board_Time();
   }

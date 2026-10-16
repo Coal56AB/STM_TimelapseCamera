@@ -7,6 +7,7 @@ struct FileReply {
   uint64_t size = 0;
   size_t length = 0;
   unsigned status = 0;
+  unsigned codec = 0;
 };
 
 class CameraLink {

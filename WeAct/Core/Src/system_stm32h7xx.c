@@ -174,6 +174,11 @@
   */
 void SystemInit (void)
 {
+  /* Camera: enable ITCM before scatter initialization. */
+  SCB->VTOR = FLASH_BASE;
+  SCB->ITCMCR |= SCB_ITCMCR_EN_Msk;
+  __DSB();
+  __ISB();
 #if defined (DATA_IN_D2_SRAM)
  __IO uint32_t tmpreg;
 #endif /* DATA_IN_D2_SRAM */

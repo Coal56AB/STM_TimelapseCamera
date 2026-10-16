@@ -5,16 +5,44 @@
 extern USBH_HandleTypeDef hUsbHostHS;
 extern ApplicationTypeDef Appli_state;
 static uint8_t rx[64];
-static uint8_t tx[16480] __attribute__((section(".bss.dma_buffer"), aligned(32)));
+static uint8_t tx[16480];
 static char assembled[96];
 static uint16_t received, cursor, length;
 static uint8_t rx_pending, tx_pending, discard;
+static uint8_t ready;
+static uint32_t last_rx, tx_progress, tx_remaining;
+static ApplicationTypeDef observed;
+static uint32_t phase_since;
+static void ResetLink(void)
+{
+  received = cursor = length = 0;
+  rx_pending = tx_pending = discard = ready = 0;
+}
 int UsbLink_ReadLine(char line[96])
 {
+  uint32_t now = HAL_GetTick();
+  if (observed != Appli_state) { observed = Appli_state; phase_since = now; }
   if (Appli_state != APPLICATION_READY)
   {
-    received = cursor = length = 0;
-    rx_pending = tx_pending = discard = 0;
+    ResetLink();
+    if (hUsbHostHS.device.is_connected && now - phase_since >= 10000)
+    {
+      USBH_Stop(&hUsbHostHS); USBH_DeInit(&hUsbHostHS);
+      Appli_state = APPLICATION_IDLE; phase_since = now;
+      MX_USB_HOST_Init();
+    }
+    return 0;
+  }
+  if (!ready) { ready = 1; last_rx = now; }
+  CDC_HandleTypeDef *cdc = hUsbHostHS.pActiveClass->pData;
+  if (tx_pending && cdc->TxDataLength != tx_remaining)
+  { tx_remaining = cdc->TxDataLength; tx_progress = now; }
+  /* Recover stalled/error CDC states through normal USB enumeration. */
+  if ((tx_pending && now - tx_progress >= 2000) || (!tx_pending && now - last_rx >= 8000))
+  {
+    ResetLink();
+    Appli_state = APPLICATION_START;
+    USBH_ReEnumerate(&hUsbHostHS);
     return 0;
   }
   /* Advance bulk packet states before returning to slower application work. */
@@ -58,11 +86,13 @@ int UsbLink_SendPacket(const char *line, const uint8_t *data, uint32_t length)
   memcpy(tx, line, n);
   if (length) memcpy(tx + n, data, length);
   tx_pending = USBH_CDC_Transmit(&hUsbHostHS, tx, (uint32_t)n + length) == USBH_OK;
+  if (tx_pending) { tx_progress = HAL_GetTick(); tx_remaining = (uint32_t)n + length; }
   return tx_pending;
 }
 void USBH_CDC_ReceiveCallback(USBH_HandleTypeDef *host)
 {
   if (host != &hUsbHostHS) return;
+  last_rx = HAL_GetTick();
   received = USBH_CDC_GetLastReceivedDataSize(host);
   if (received > sizeof(rx)) received = 0;
   cursor = 0; rx_pending = 0;

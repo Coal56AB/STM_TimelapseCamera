@@ -1,16 +1,20 @@
 #include "Arduino.h"
 #include "CameraLink.h"
+#include "Config.h"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
 TestSerial Serial;
 static CameraLink link;
 static uint32_t tick;
+static bool ssidSent, passwordSent;
 uint32_t millis() { return tick; }
 void delay(unsigned ms) { tick += ms; Serial.quota = 64; }
 size_t TestSerial::write(const uint8_t *data, size_t size)
 {
   std::string command((const char *)data, size);
+  if (command == std::string("APSSID ") + WIFI_SSID + "\n") ssidSent = true;
+  if (command == std::string("APPASS ") + WIFI_PASSWORD + "\n") passwordSent = true;
   unsigned long id;
   if (sscanf(command.c_str(), "TIME %lu", &id) == 1)
   {
@@ -30,6 +34,7 @@ size_t TestSerial::write(const uint8_t *data, size_t size)
     if (reply_mode == 6) rx += "FILE " + std::to_string(id) + " 3 7 0 0\n";
     if (reply_mode == 7) rx += "FILE " + std::to_string(id - 1) + " 0 7 8 8\nWIFI 0\nXFILE " + std::to_string(id) + " 0 8 0 0\n";
     if (reply_mode == 8) rx += "FILE " + std::to_string(id) + " 0 7 7000000000 16384\nshort";
+    if (reply_mode == 9) rx += "FILE " + std::to_string(id) + " 0 7 7000000000 0 2\n";
   }
   return size;
 }
@@ -44,6 +49,7 @@ int main()
 {
   link.begin();
   assert(!link.wifiRequested());
+  link.update(false); assert(ssidSent && passwordSent);
   assert(!link.setTime(946684800, 180));
   Serial.rx = "WIFI "; link.update(false);
   assert(!link.wifiRequested());
@@ -83,4 +89,5 @@ int main()
   assert(link.fileCommand("READ 7 0", payload, sizeof(payload), reply));
   puts("PASS: ESP USB framing, Wi-Fi off/start/stop/lease, timestamp ACK/error/timeout, tick wrap");
   puts("PASS: binary file blocks, 64-bit file size, stale replies, errors and truncated packet timeout");
+  Serial.reply_mode = 9; assert(link.fileCommand("OPEN 1 0", payload, sizeof(payload), reply) && reply.codec == 2);
 }

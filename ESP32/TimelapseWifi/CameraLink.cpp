@@ -13,13 +13,16 @@ void CameraLink::handleCommand() {
   unsigned state;
   unsigned long id;
   char extra;
-  unsigned status; unsigned long token, count; unsigned long long size;
-  if (sscanf(line_, "FILE %lu %u %lu %llu %lu %c", &id, &status, &token, &size, &count, &extra) == 5 && count <= 16384) {
+  unsigned status, codec = 0; unsigned long token, count; unsigned long long size;
+  bool fileHeader = sscanf(line_, "FILE %lu %u %lu %llu %lu %u %c", &id, &status, &token, &size, &count, &codec, &extra) == 6;
+  if (!fileHeader) { codec = 0; fileHeader = sscanf(line_, "FILE %lu %u %lu %llu %lu %c", &id, &status, &token, &size, &count, &extra) == 5; }
+  if (fileHeader && count <= 16384 && codec <= 2) {
     remaining_ = count; received_ = 0;
     copyPayload_ = pending_ && id == pending_ && count <= capacity_ && (payload_ || !count);
     if (copyPayload_) {
       lastReply_ = millis();
       reply_.token = (uint32_t)token; reply_.size = size; reply_.status = status; reply_.length = count;
+      reply_.codec = codec;
       fileDone_ = !count;
     }
     return;
@@ -67,6 +70,13 @@ void CameraLink::update(bool wifiEnabled) {
   if ((int32_t)(now - nextState_) >= 0) {
     const char *state = actual_ ? "STATE 1\n" : "STATE 0\n";
     Serial.write((const uint8_t *)state, strlen(state));
+    if (!fileWaiting_) {
+      char info[80];
+      int length = snprintf(info, sizeof(info), "APSSID %s\n", WIFI_SSID);
+      Serial.write((const uint8_t *)info, length);
+      length = snprintf(info, sizeof(info), "APPASS %s\n", WIFI_PASSWORD);
+      Serial.write((const uint8_t *)info, length);
+    }
     nextState_ = now + LINK_STATE_INTERVAL_MS;
   }
 }

@@ -52,6 +52,8 @@ HAL_StatusTypeDef HAL_DCMI_Start_DMA(DCMI_HandleTypeDef *h, uint32_t mode, uint3
 HAL_StatusTypeDef HAL_DCMI_Stop(DCMI_HandleTypeDef *h) { (void)h; ++stopped; return HAL_OK; }
 int main(void)
 {
+  static uint8_t camera_pixels[320 * 240 * 2] __attribute__((aligned(32)));
+  Camera_SetBuffer(camera_pixels);
   regs[0x0a] = 0x77; regs[0x0b] = 0x21;
   assert(Camera_Init(320, 240) == CAMERA_OK && tick - last_write >= 300);
   assert(regs[COM7] == 0x46 && regs[DSP_CTRL4] == 0 && regs[COM3] == 0x10);

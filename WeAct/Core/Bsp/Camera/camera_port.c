@@ -4,7 +4,8 @@
 #include "i2c.h"
 
 /* DMA1 не видит DTCM; секция размещается линкером в AXI SRAM. */
-static uint8_t pixels[320 * 240 * 2] __attribute__((section(".bss.dma_buffer"), aligned(32)));
+static uint8_t *pixels;
+void Camera_SetBuffer(uint8_t *buffer) { Camera_Stop(); pixels = buffer; }
 static volatile uint8_t completed, failed;
 static uint8_t running, initialized;
 static uint16_t frame_width, frame_height;
@@ -33,6 +34,7 @@ static const Sensor_Bus_t bus = { &hi2c1, Read, Write, HAL_Delay };
 
 Camera_Result_t Camera_Init(uint16_t width, uint16_t height)
 {
+  if (!pixels || ((uintptr_t)pixels & 31U)) return CAMERA_ERROR;
   Camera_Stop();
   initialized = 0;
   if (!OV7725_Probe(&bus)) return OV5640_Probe(&bus) ? CAMERA_UNSUPPORTED : CAMERA_NOT_FOUND;

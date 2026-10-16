@@ -7,9 +7,9 @@
 #include <string.h>
 
 static ST7735_Object_t panel;
-static uint8_t stripe[160 * 12 * 2];
+static uint8_t stripe[160 * 12 * 2] __attribute__((section(".bss.display")));
 /* Копия предпросмотра позволяет обновлять надписи во время следующего DMA кадра. */
-static uint8_t preview[160 * 80 * 2];
+static uint8_t preview[160 * 80 * 2] __attribute__((section(".bss.display")));
 static struct { char text[27]; uint8_t active, highlighted; } overlays[6];
 static struct { char text[27]; uint8_t valid, selected; } lines[6];
 

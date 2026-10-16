@@ -9,7 +9,7 @@ static const char Web_Page[] PROGMEM = R"HTML(<!doctype html>
 section{margin-bottom:42px}.record{border:1px solid #52616b;border-radius:12px;padding:18px;margin:16px 0}.record h3{margin:0 0 8px}a.download{display:block;text-decoration:none;background:#9cdbc1;color:#10231c;padding:12px;border-radius:8px;margin-top:12px;font-weight:600}.parts a{background:#24352f;color:#c8e9db}.error{color:#ffb6a8}h2{font-size:23px}
 </style>
 <main><div class="eyebrow">TIMELAPSE CAMERA</div><h1>Записи камеры</h1>
-<section><p>Скачайте отдельные фрагменты или объедините всю сессию в один AVI. Исходные файлы останутся на карте.</p>
+<section><p>Скачайте готовый MP4 или объедините всю сессию в одно видео. Исходные фрагменты останутся на карте.</p>
 <button id="refresh" type="button">Обновить список</button><p id="filesStatus" role="status"></p>
 <div id="recordings"></div><button id="more" class="secondary" type="button" hidden>Следующие записи</button>
 <small>Во время скачивания оставьте камеру в режиме Wi-Fi. Ход загрузки отображается в браузере.</small></section>
@@ -45,7 +45,7 @@ function downloadLink(session,part,label){const a=document.createElement('a');a.
 function card(s){
  const box=document.createElement('article');box.className='record';const title=document.createElement('h3');title.textContent='Запись R'+String(s.id).padStart(7,'0');box.append(title);
  const info=document.createElement('p');info.textContent=s.error?'Не удалось объединить сессию. Проверьте доступные фрагменты.':`${s.width}×${s.height} · ${duration(s.frames/s.fps)} · ${s.fragments} фрагм. · ${bytes(s.size)}`;box.append(info);
- if(!s.error)box.append(downloadLink(s.id,0,'Объединить и скачать AVI'));
+ if(!s.error)box.append(downloadLink(s.id,0,'Объединить и скачать '+(s.format==='MP4'?'MP4':'AVI')));
  const parts=document.createElement('div');parts.className='parts';const button=document.createElement('button');button.className='secondary';button.textContent='Показать фрагменты';box.append(parts,button);
  let after=0;
  button.onclick=async()=>{button.disabled=true;try{for(let i=0;i<20;i++){const f=await get(`/api/fragments?session=${s.id}&after=${after}`);if(!f){button.hidden=true;return;}if(f.id<=after)throw new Error();after=f.id;parts.append(downloadLink(s.id,f.id,`Фрагмент ${f.id} · ${duration(f.frames/f.fps)} · ${bytes(f.size)}`));}button.textContent='Следующие фрагменты';}catch{button.textContent='Повторить загрузку фрагментов';}finally{button.disabled=false;}};

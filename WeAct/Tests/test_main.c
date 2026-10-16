@@ -455,6 +455,68 @@ static void CompressedTests(void)
   puts("PASS: MJPEG recording, 3 fragments, OpenDML merge, bytewise boundaries, large block reads");
 }
 
+static void Mp4Tests(void)
+{
+  Fresh(); Recording_t r = {0}; AVI_Format_t format = {160, 120, 25, AVI_H264};
+  /* Short test fragments exercise the same rollover path without encoding minutes of fixtures. */
+  assert(Recording_Start(&r, &format, 1) == STORE_OK);
+  for (unsigned n = 0; n < 65; ++n)
+  {
+    for (unsigned y = 0; y < 120; ++y) for (unsigned x = 0; x < 160; ++x)
+    {
+      unsigned at = (y * 160 + x) * 2; uint16_t color = y < 60 ? 0xf800 : 0x07ff;
+      if (x >= n && x < n + 8) color = 0xffff;
+      pixels[at] = color >> 8; pixels[at + 1] = color;
+    }
+    assert(Recording_Append(&r, pixels, "16.10.2026 12:34:56") == STORE_OK);
+  }
+  assert(Recording_Stop(&r) == STORE_OK && r.fragment == 4);
+  Recording_Stream_t stream;
+  assert(Recording_StreamOpen(&stream, 1) == STORE_OK && stream.frames == 65 && stream.format.codec == AVI_H264);
+  uint64_t total = stream.size;
+  FILE *saved = fopen("merged.mp4", "wb"); assert(saved);
+  const unsigned capacities[] = {1, 7, 31, 4093, 16384}; unsigned turn = 0;
+  uint8_t buffer[DOWNLOAD_BLOCK_SIZE];
+  while (stream.position < total)
+  {
+    uint32_t read; assert(Recording_StreamRead(&stream, buffer, capacities[turn++ % 5], &read) == STORE_OK && read);
+    assert(fwrite(buffer, 1, read, saved) == read);
+  }
+  fclose(saved); Recording_StreamClose(&stream);
+  Recording_Merge_t merge = {0}; assert(Recording_MergeStart(&merge, 1) == STORE_OK);
+  while (merge.active) assert(Recording_MergeProcess(&merge) == STORE_OK);
+  Store_File_t file = {0}; assert(Store_Open(&file, "0:/TL/R0000001/ALL.MP4", STORE_READ) == STORE_OK);
+  Download_t download = {0}; char header[96], command[96]; uint32_t length;
+  Download_Command(&download, "FILES 1 LIST 0", 0, 1, header, buffer, &length);
+  buffer[length] = 0; assert(strstr((char *)buffer, "\"format\":\"MP4\""));
+  Download_Command(&download, "FILES 2 OPEN 1 0", 0, 1, header, buffer, &length);
+  assert(download.active && download.codec == AVI_H264 && download.size == total);
+  saved = fopen("merged.mp4", "rb"); assert(saved);
+  while (download.position < total)
+  {
+    uint8_t expected[DOWNLOAD_BLOCK_SIZE], disk[DOWNLOAD_BLOCK_SIZE];
+    snprintf(command, sizeof(command), "FILES 3 READ %lu %llu", (unsigned long)download.token, (unsigned long long)download.position);
+    Download_Command(&download, command, 10, 1, header, buffer, &length);
+    assert(length && fread(expected, 1, length, saved) == length && !memcmp(expected, buffer, length));
+    assert(Store_Read(&file, disk, length) == STORE_OK && !memcmp(expected, disk, length));
+  }
+  fclose(saved); Store_Close(&file); Download_Close(&download);
+  Download_Command(&download, "FILES 4 OPEN 1 2", 0, 1, header, buffer, &length);
+  assert(download.active && download.codec == AVI_H264);
+  Download_Close(&download);
+  /* A failed new MP4 must leave the previous closed session readable. */
+  assert(Recording_Start(&r, &format, 30) == STORE_OK);
+  Host_FailWrite = 0;
+  Store_Result_t failed = Recording_Append(&r, pixels, NULL);
+  if (failed == STORE_OK) failed = Recording_Stop(&r);
+  Host_FailWrite = -1;
+  assert(failed != STORE_OK && !r.active);
+  assert(Store_Init() == STORE_OK);
+  assert(Recording_StreamOpen(&stream, 1) == STORE_OK && stream.frames == 65);
+  Recording_StreamClose(&stream);
+  puts("PASS: MP4/H.264 on SD, 3 independent fragments, merged timeline, download/SD byte equality");
+}
+
 static void FailureTests(void)
 {
   AVI_Format_t format = {160, 120, 25, AVI_DIB}; uint8_t original[57856], actual[57856];
@@ -482,7 +544,7 @@ int main(void)
   for (unsigned i = 0; i < sizeof(formats); ++i)
   {
     Host_FormatType = formats[i];
-    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests(); TimestampTests(); DownloadTests(); LargeSessionTests(); CompressedTests();
+    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests(); TimestampTests(); DownloadTests(); LargeSessionTests(); CompressedTests(); Mp4Tests();
     printf("PASS: %s: settings/migration/capture periods, 4 fragment durations, merge/download, hotplug, 40 write failures\n", names[i]);
   }
   return 0;

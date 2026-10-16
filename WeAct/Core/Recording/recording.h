@@ -1,10 +1,11 @@
 /** @file recording.h
- *  @brief Сеансы записи и независимые AVI-фрагменты заданной длительности.
+ *  @brief Сеансы записи и независимые видеофрагменты заданной длительности.
  */
 #ifndef RECORDING_H
 #define RECORDING_H
 #include "store.h"
 #include "avi.h"
+#include "mp4.h"
 
 #define RECORDING_ROOT "0:/TL"
 #define RECORDING_MAX_ID 9999999U
@@ -16,7 +17,9 @@ typedef struct
   uint32_t data_bytes, max_frame;
   Store_File_t file;
   uint8_t active;
+  MP4_Info_t mp4;
 } Recording_t;
+Store_Result_t Recording_OpenFragment(Store_File_t *file, uint32_t id, uint32_t part, uint32_t *size);
 
 Store_Result_t Recording_Init(void);
 Store_Result_t Recording_Start(Recording_t *recording, const AVI_Format_t *format, uint16_t fragment_seconds);
@@ -29,7 +32,7 @@ Store_Result_t Recording_NextFragment(uint32_t id, uint32_t after, uint32_t *nex
 Store_Result_t Recording_FragmentCount(uint32_t id, uint32_t *count);
 void Recording_Path(char path[40], uint32_t id, uint32_t frame, const char *extension);
 
-/** Последовательное виртуальное AVI для объединения на SD и передачи по USB. */
+/** Последовательное виртуальное видео для объединения на SD и передачи по USB. */
 typedef struct
 {
   AVI_Format_t format;
@@ -40,7 +43,10 @@ typedef struct
   uint32_t fragments, source_frames, source_first;
   uint32_t source_bytes, max_frame, segment, segment_frames, segment_bytes, catalog_part;
   uint64_t segment_start, catalog_start;
-  uint8_t header[AVI_HEADER_SIZE];
+  uint8_t header[MP4_HEADER_SIZE];
+  MP4_Info_t mp4;
+  uint32_t packet_left, packet_at, mp4_frame, source_position;
+  uint8_t packet[MP4_PACKET_SIZE];
 } Recording_Stream_t;
 Store_Result_t Recording_StreamOpen(Recording_Stream_t *stream, uint32_t id);
 Store_Result_t Recording_StreamRead(Recording_Stream_t *stream, void *data,
@@ -51,7 +57,6 @@ typedef struct
 {
   Recording_Stream_t stream;
   Store_File_t output;
-  uint8_t buffer[16384];
   uint8_t active;
 } Recording_Merge_t;
 Store_Result_t Recording_MergeStart(Recording_Merge_t *merge, uint32_t id);

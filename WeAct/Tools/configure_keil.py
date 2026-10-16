@@ -30,7 +30,7 @@ arm = options.find('TargetArmAds')
 for key, value in {
     'ArmAdsMisc/useUlib': '1', 'Cads/Optim': '6', 'Cads/uGnu': '0', 'Cads/wLevel': '3',
     'Cads/VariousControls/MiscControls': '-std=c11 -Wall -Wextra -Wno-unused-parameter -O2',
-    'Cads/VariousControls/Define': 'USE_HAL_DRIVER,STM32H723xx,USER_VECT_TAB_ADDRESS',
+    'Cads/VariousControls/Define': 'USE_HAL_DRIVER,STM32H723xx,USER_VECT_TAB_ADDRESS,DATA_IN_D2_SRAM',
     'LDads/umfTarg': '0', 'LDads/ScatterFile': 'Timelapse.sct',
 }.items():
     set_text(arm, key, value)
@@ -79,4 +79,13 @@ for old, new in [
     assert old in source or new in source, 'Unexpected CDC middleware version'
     source = source.replace(old, new)
 cdc.write_text(source, encoding='utf-8')
+# ITCM holds chroma data; enable it before C startup clears the scatter regions.
+system = root / 'Core/Src/system_stm32h7xx.c'
+source = system.read_text(encoding='utf-8')
+marker = '  /* Camera: enable ITCM before scatter initialization. */'
+if marker not in source:
+    anchor = 'void SystemInit (void)\n{'
+    assert anchor in source, 'Unexpected SystemInit layout'
+    source = source.replace(anchor, anchor + '\n' + marker + '\n  SCB->VTOR = FLASH_BASE;\n  SCB->ITCMCR |= SCB_ITCMCR_EN_Msk;\n  __DSB();\n  __ISB();')
+    system.write_text(source, encoding='utf-8')
 print(project)

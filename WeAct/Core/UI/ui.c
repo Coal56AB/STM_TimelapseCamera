@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "display.h"
 #include <stdio.h>
+#include <string.h>
 
 void UI_Init(UI_t *ui) { *ui = (UI_t){UI_PREVIEW, 0, 1}; }
 UI_Action_t UI_Process(UI_t *ui, Button_Event_t event)
@@ -58,10 +59,12 @@ void UI_Draw(UI_t *ui, const UI_View_t *v)
   else if (ui->screen == UI_WIFI_SCREEN)
   {
     Display_Line(0, v->wifi_ready ? "WIFI: ON" : "WAITING FOR ESP", 0);
-    Display_Line(1, "TimelapseCamera", 0);
-    Display_Line(2, "PASS: timelapse32", 0);
-    Display_Line(3, "192.168.4.1", 0);
-    Display_Line(4, "VIDEO / DATE / TIME", 0);
+    const char *password = v->wifi_password ? v->wifi_password : "";
+    Display_Line(1, v->wifi_ssid && *v->wifi_ssid ? v->wifi_ssid : "READING ESP CONFIG...", 0);
+    snprintf(text, sizeof(text), "PASS: %.20s", password);
+    Display_Line(2, text, 0);
+    Display_Line(3, strlen(password) > 20 ? password + 20 : "192.168.4.1", 0);
+    Display_Line(4, strlen(password) > 46 ? password + 46 : (strlen(password) > 20 ? "192.168.4.1" : "VIDEO / DATE / TIME"), 0);
     Display_Line(5, "DOUBLE: WIFI OFF", 0);
   }
   else if (ui->screen == UI_CONFIRM)

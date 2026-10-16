@@ -4,13 +4,17 @@
 #include <stdio.h>
 #include <string.h>
 #include "download.h"
+#include "media_memory.h"
+static char ssid[33], password[64];
+const char *EspControl_Ssid(void) { return ssid; }
+const char *EspControl_Password(void) { return password; }
 
 uint8_t EspControl_Process(Clock_t *clock, uint8_t wifi_requested, uint8_t sd_ready, uint32_t now)
 {
   static uint32_t seen;
   static uint8_t wifi;
   static Download_t download;
-  static uint8_t payload[DOWNLOAD_BLOCK_SIZE] __attribute__((section(".bss.dma_buffer"), aligned(32)));
+  uint8_t *payload = Media_Memory;
   char request[96], response[96];
   Download_Process(&download, wifi_requested && sd_ready, now);
   if (UsbLink_ReadLine(request))
@@ -21,6 +25,14 @@ uint8_t EspControl_Process(Clock_t *clock, uint8_t wifi_requested, uint8_t sd_re
     {
       seen = now; wifi = (uint8_t)state;
       snprintf(response, sizeof(response), "WIFI %u\n", wifi_requested != 0);
+    }
+    else if (!strncmp(request, "APSSID ", 7) || !strncmp(request, "APPASS ", 7))
+    {
+      char *target = request[2] == 'S' ? ssid : password;
+      size_t capacity = request[2] == 'S' ? sizeof(ssid) : sizeof(password);
+      size_t length = strlen(request + 7);
+      if (length < capacity) memcpy(target, request + 7, length + 1);
+      return wifi_requested && wifi && now - seen < 3000;
     }
     else if (!strncmp(request, "FILES ", 6))
     {

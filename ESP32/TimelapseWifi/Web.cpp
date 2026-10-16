@@ -88,20 +88,22 @@ void Web::download() {
   }
   uint32_t token = reply.token;
   uint64_t total = reply.size, position = 0;
-  if (part) snprintf(filename, sizeof(filename), "R%07lu_F%07lu.avi", (unsigned long)session, (unsigned long)part);
-  else snprintf(filename, sizeof(filename), "R%07lu_ALL.avi", (unsigned long)session);
+  unsigned codec = reply.codec;
+  const char *extension = codec == 2 ? "mp4" : "avi";
+  if (part) snprintf(filename, sizeof(filename), "R%07lu_F%07lu.%s", (unsigned long)session, (unsigned long)part, extension);
+  else snprintf(filename, sizeof(filename), "R%07lu_ALL.%s", (unsigned long)session, extension);
   // Content-Length is 64-bit; WebServer's size_t length is only 32-bit on ESP32.
   char header[320];
   int length = snprintf(header, sizeof(header),
-    "HTTP/1.1 200 OK\r\nContent-Type: video/x-msvideo\r\nContent-Length: %llu\r\n"
+    "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %llu\r\n"
     "Content-Disposition: attachment; filename=\"%s\"\r\nAccept-Ranges: none\r\nConnection: close\r\n\r\n",
-    (unsigned long long)total, filename);
+    codec == 2 ? "video/mp4" : "video/x-msvideo", (unsigned long long)total, filename);
   server_.client().setTimeout(2);
   bool ok = writeClient((const uint8_t *)header, (size_t)length);
   while (ok && position < total && server_.client().connected() && link_.wifiRequested()) {
     snprintf(command, sizeof(command), "READ %lu %llu", (unsigned long)token, (unsigned long long)position);
     ok = link_.fileCommand(command, block_, sizeof(block_), reply) && reply.token == token &&
-         reply.size == total && reply.length && reply.length <= total - position;
+         reply.size == total && reply.codec == codec && reply.length && reply.length <= total - position;
     if (ok) { ok = writeClient(block_, reply.length); position += reply.length; }
   }
   snprintf(command, sizeof(command), "CLOSE %lu", (unsigned long)token);

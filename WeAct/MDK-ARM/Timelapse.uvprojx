@@ -339,9 +339,9 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>-std=c11 -Wall -Wextra -Wno-unused-parameter -O2</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32H723xx,USER_VECT_TAB_ADDRESS</Define>
+              <Define>USE_HAL_DRIVER,STM32H723xx,USER_VECT_TAB_ADDRESS,DATA_IN_D2_SRAM</Define>
               <Undefine />
-              <IncludePath>../Core/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../Core/Bsp;../Core/Bsp/Camera;../Core/Bsp/ST7735;../Core/Bsp/Storage;../Core/Camera;../Core/Common;../Core/Media;../Core/Recording;../Core/Storage;../Core/Storage/FatFs;../Core/Timelapse;../Core/UI;../USB_HOST/App;../USB_HOST/Target;../Middlewares/ST/STM32_USB_Host_Library/Core/Inc;../Middlewares/ST/STM32_USB_Host_Library/Class/CDC/Inc;../Core/Bsp/USB;../Core/Media/JpegEnc</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../Core/Bsp;../Core/Bsp/Camera;../Core/Bsp/ST7735;../Core/Bsp/Storage;../Core/Camera;../Core/Common;../Core/Media;../Core/Recording;../Core/Storage;../Core/Storage/FatFs;../Core/Timelapse;../Core/UI;../USB_HOST/App;../USB_HOST/Target;../Middlewares/ST/STM32_USB_Host_Library/Core/Inc;../Middlewares/ST/STM32_USB_Host_Library/Class/CDC/Inc;../Core/Bsp/USB;../Core/Media/JpegEnc;../Core/Media/MiniH264</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -867,7 +867,32 @@
               <FileType>5</FileType>
               <FilePath>../Core/Media/avi_extended.h</FilePath>
             </File>
-          <File><FileName>avi_compressed.c</FileName><FileType>1</FileType><FilePath>../Core/Media/avi_compressed.c</FilePath></File><File><FileName>avi_compressed.h</FileName><FileType>5</FileType><FilePath>../Core/Media/avi_compressed.h</FilePath></File><File><FileName>jpeg_frame.c</FileName><FileType>1</FileType><FilePath>../Core/Media/jpeg_frame.c</FilePath></File><File><FileName>jpeg_frame.h</FileName><FileType>5</FileType><FilePath>../Core/Media/jpeg_frame.h</FilePath></File><File><FileName>JPEGENC.h</FileName><FileType>5</FileType><FilePath>../Core/Media/JpegEnc/JPEGENC.h</FilePath></File></Files>
+            <File>
+              <FileName>avi_compressed.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Media/avi_compressed.c</FilePath>
+            </File>
+            <File>
+              <FileName>avi_compressed.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../Core/Media/avi_compressed.h</FilePath>
+            </File>
+            <File>
+              <FileName>jpeg_frame.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Media/jpeg_frame.c</FilePath>
+            </File>
+            <File>
+              <FileName>jpeg_frame.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../Core/Media/jpeg_frame.h</FilePath>
+            </File>
+            <File>
+              <FileName>JPEGENC.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../Core/Media/JpegEnc/JPEGENC.h</FilePath>
+            </File>
+          <File><FileName>h264_frame.c</FileName><FileType>1</FileType><FilePath>../Core/Media/h264_frame.c</FilePath></File><File><FileName>h264_frame.h</FileName><FileType>5</FileType><FilePath>../Core/Media/h264_frame.h</FilePath></File><File><FileName>media_memory.c</FileName><FileType>1</FileType><FilePath>../Core/Media/media_memory.c</FilePath></File><File><FileName>media_memory.h</FileName><FileType>5</FileType><FilePath>../Core/Media/media_memory.h</FilePath></File><File><FileName>minih264e.h</FileName><FileType>5</FileType><FilePath>../Core/Media/MiniH264/minih264e.h</FilePath></File><File><FileName>mp4.c</FileName><FileType>1</FileType><FilePath>../Core/Media/mp4.c</FilePath></File><File><FileName>mp4.h</FileName><FileType>5</FileType><FilePath>../Core/Media/mp4.h</FilePath></File></Files>
         </Group>
         <Group>
           <GroupName>Core/Recording</GroupName>
@@ -892,7 +917,12 @@
               <FileType>5</FileType>
               <FilePath>../Core/Recording/download.h</FilePath>
             </File>
-          <File><FileName>recording_stream.c</FileName><FileType>1</FileType><FilePath>../Core/Recording/recording_stream.c</FilePath></File></Files>
+            <File>
+              <FileName>recording_stream.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Recording/recording_stream.c</FilePath>
+            </File>
+          <File><FileName>recording_mp4.c</FileName><FileType>1</FileType><FilePath>../Core/Recording/recording_mp4.c</FilePath></File><File><FileName>recording_mp4.h</FileName><FileType>5</FileType><FilePath>../Core/Recording/recording_mp4.h</FilePath></File></Files>
         </Group>
         <Group>
           <GroupName>Core/Storage</GroupName>

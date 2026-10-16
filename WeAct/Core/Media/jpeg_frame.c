@@ -1,13 +1,17 @@
 #include "jpeg_frame.h"
 #include "image_text.h"
 #include "avi.h"
+#include "media_memory.h"
 #include "JpegEnc/JPEGENC.h"
 /* Portable integer JPEG encoder; see JpegEnc/LICENSE and development.md. */
 #include "JpegEnc/jpegenc.inl"
 
-static uint8_t output[65536] __attribute__((section(".bss.dma_buffer"), aligned(32)));
-static JPEGE_IMAGE encoder;
-static uint8_t rows[16 * 320 * 3];
+typedef struct { uint8_t output[65536]; JPEGE_IMAGE encoder; uint8_t rows[16 * 320 * 3]; } Jpeg_Work_t;
+_Static_assert(sizeof(Jpeg_Work_t) + 30016 <= MEDIA_PERSIST_BYTES, "JPEG workspace size");
+#define work ((Jpeg_Work_t *)(Media_Memory + 30016))
+#define output (work->output)
+#define encoder (work->encoder)
+#define rows (work->rows)
 
 int JPEG_Frame(const uint8_t *rgb, uint16_t width, uint16_t height,
                const char *timestamp, const uint8_t **data, uint32_t *size)

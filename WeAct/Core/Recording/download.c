@@ -15,13 +15,18 @@ void Download_Process(Download_t *d, uint8_t enabled, uint32_t now)
 static Store_Result_t Fragment(uint32_t id, uint32_t part, Store_File_t *file, uint32_t *size,
                                AVI_Format_t *format, uint32_t *frames)
 {
-  uint8_t header[AVI_HEADER_SIZE]; char path[40];
+  uint8_t header[MP4_HEADER_SIZE];
   if (!id || id > RECORDING_MAX_ID || !part || part > RECORDING_MAX_ID) return STORE_NOT_FOUND;
-  Recording_Path(path, id, part, "AVI");
-  Store_Result_t result = Store_Stat(path, size);
-  if (result == STORE_OK) result = Store_Open(file, path, STORE_READ);
-  if (result == STORE_OK) result = Store_Read(file, header, sizeof(header));
-  if (result == STORE_OK)
+  Store_Result_t result = Recording_OpenFragment(file, id, part, size);
+  if (result == STORE_OK) result = Store_Read(file, header, AVI_HEADER_SIZE);
+  if (result == STORE_OK && !memcmp(header + 4, "ftyp", 4))
+  {
+    MP4_Info_t info;
+    if (Store_Read(file, header + AVI_HEADER_SIZE, MP4_HEADER_SIZE - AVI_HEADER_SIZE) != STORE_OK || !MP4_Parse(header, &info) ||
+        *size <= MP4_HEADER_SIZE || (uint64_t)info.frames * (MP4_PACKET_SIZE + 5) > *size - MP4_HEADER_SIZE) result = STORE_IO;
+    else { *format = info.format; *frames = info.frames; }
+  }
+  else if (result == STORE_OK)
   {
     AVI_Info_t info;
     if (!AVI_Info(header, &info) || *size != (info.format.codec == AVI_DIB ? AVI_Size(&info.format, info.frames) : AVI_CompressedSize(&info))) result = STORE_IO;
@@ -52,10 +57,10 @@ void Download_Command(Download_t *d, const char *request, uint32_t now, uint8_t 
     {
       Store_Result_t info = Recording_StreamOpen(&d->stream, id);
       *length = (uint32_t)snprintf((char *)data, DOWNLOAD_BLOCK_SIZE,
-        "{\"id\":%lu,\"frames\":%lu,\"fragments\":%lu,\"fps\":%u,\"width\":%u,\"height\":%u,\"size\":%llu,\"error\":%u}",
+        "{\"id\":%lu,\"frames\":%lu,\"fragments\":%lu,\"fps\":%u,\"width\":%u,\"height\":%u,\"size\":%llu,\"error\":%u,\"format\":\"%s\"}",
         (unsigned long)id, (unsigned long)d->stream.frames, (unsigned long)d->stream.fragments,
         d->stream.format.fps, d->stream.format.width, d->stream.format.height,
-        (unsigned long long)d->stream.size, (unsigned)info);
+        (unsigned long long)d->stream.size, (unsigned)info, d->stream.format.codec == AVI_H264 ? "MP4" : "AVI");
       Recording_StreamClose(&d->stream);
     }
   }
@@ -69,8 +74,8 @@ void Download_Command(Download_t *d, const char *request, uint32_t now, uint8_t 
     {
       result = Fragment((uint32_t)a, next, &d->file, &size, &format, &frames);
       if (result == STORE_OK) *length = (uint32_t)snprintf((char *)data, DOWNLOAD_BLOCK_SIZE,
-        "{\"id\":%lu,\"frames\":%lu,\"fps\":%u,\"size\":%lu}",
-        (unsigned long)next, (unsigned long)frames, format.fps, (unsigned long)size);
+        "{\"id\":%lu,\"frames\":%lu,\"fps\":%u,\"size\":%lu,\"format\":\"%s\"}",
+        (unsigned long)next, (unsigned long)frames, format.fps, (unsigned long)size, format.codec == AVI_H264 ? "MP4" : "AVI");
       Store_Close(&d->file);
     }
   }
@@ -81,12 +86,14 @@ void Download_Command(Download_t *d, const char *request, uint32_t now, uint8_t 
     {
       result = Recording_StreamOpen(&d->stream, (uint32_t)a);
       d->size = d->stream.size; d->merged = 1;
+      d->codec = d->stream.format.codec;
     }
     else
     {
       uint32_t size = 0, frames; AVI_Format_t format;
       result = Fragment((uint32_t)a, (uint32_t)b, &d->file, &size, &format, &frames);
       d->size = size; d->merged = 0;
+      if (result == STORE_OK) d->codec = format.codec;
     }
     if (result == STORE_OK)
     {
@@ -108,6 +115,6 @@ void Download_Command(Download_t *d, const char *request, uint32_t now, uint8_t 
   else if (!strcmp(operation, "CLOSE") && sscanf(request, "FILES %lu CLOSE %lu %c", &seq, &a, &extra) == 2 && a == d->token)
   { Download_Close(d); result = STORE_OK; }
 reply:
-  snprintf(header, 96, "FILE %lu %u %lu %llu %lu\n", seq, (unsigned)result,
-           (unsigned long)d->token, (unsigned long long)d->size, (unsigned long)*length);
+  snprintf(header, 96, "FILE %lu %u %lu %llu %lu %u\n", seq, (unsigned)result,
+           (unsigned long)d->token, (unsigned long long)d->size, (unsigned long)*length, d->codec);
 }

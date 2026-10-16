@@ -9,6 +9,7 @@ root = Path(__file__).resolve().parents[1]
 build = root / 'build/host'
 build.mkdir(parents=True, exist_ok=True)
 sources = ['Tests/test_main.c', 'Tests/host_disk.c', 'Core/Common/button.c', 'Core/Media/avi.c', 'Core/Media/avi_extended.c',
+           'Core/Media/media_memory.c', 'Core/Media/h264_frame.c', 'Core/Media/mp4.c', 'Core/Recording/recording_mp4.c',
            'Core/Recording/recording.c', 'Core/Recording/recording_stream.c', 'Core/Media/avi_compressed.c', 'Core/Media/jpeg_frame.c', 'Core/Recording/download.c', 'Core/Media/image_text.c', 'Core/Common/font.c', 'Core/Timelapse/timelapse_config.c', 'Core/UI/ui.c',
            'Core/Bsp/Storage/store_fatfs.c', 'Core/Storage/FatFs/ff.c', 'Core/Storage/FatFs/ffunicode.c']
 includes = ['Tests', 'Core/Common', 'Core/Media', 'Core/Recording', 'Core/Storage',
@@ -42,11 +43,20 @@ time_sources = ['Tests/test_time.c', 'Core/Common/clock.c', 'Core/Common/font.c'
 subprocess.run(command + ['-I' + str(root / p) for p in ['Core/Common', 'Core/Media', 'Core/Timelapse']] +
                [str(root / p) for p in time_sources] + ['-o', str(build / 'test_time')], check=True)
 subprocess.run([str(build / 'test_time')], check=True)
-control_sources = ['Tests/test_esp_control.c', 'Core/Timelapse/esp_control.c',
+control_sources = ['Tests/test_esp_control.c', 'Core/Timelapse/esp_control.c', 'Core/Media/media_memory.c',
                    'Core/Timelapse/time_sync.c', 'Core/Common/clock.c']
 subprocess.run(command + ['-I' + str(root / p) for p in ['Core/Common', 'Core/Timelapse', 'Core/Bsp/USB', 'Core/Recording', 'Core/Media', 'Core/Storage']] +
                [str(root / p) for p in control_sources] + ['-o', str(build / 'test_esp_control')], check=True)
 subprocess.run([str(build / 'test_esp_control')], check=True)
+usb_sources = ['Tests/USB/test_usb.c', 'Core/Bsp/USB/usb_link.c']
+subprocess.run(command + ['-I' + str(root / p) for p in ['Tests/USB', 'Core/Bsp/USB']] +
+               [str(root / p) for p in usb_sources] + ['-o', str(build / 'test_usb')], check=True)
+subprocess.run([str(build / 'test_usb')], check=True)
+h264_sources = ['Tests/test_h264.c', 'Core/Media/h264_frame.c', 'Core/Media/mp4.c', 'Core/Media/media_memory.c',
+                'Core/Media/avi.c', 'Core/Media/image_text.c', 'Core/Common/font.c']
+subprocess.run(command + ['-I' + str(root / p) for p in ['Core/Media', 'Core/Common']] +
+               [str(root / p) for p in h264_sources] + ['-o', str(build / 'test_h264')], check=True)
+subprocess.run([str(build / 'test_h264')], cwd=str(build), check=True)
 
 data = (build / 'merged.avi').read_bytes()
 u32 = lambda at: struct.unpack_from('<I', data, at)[0]

@@ -5,21 +5,30 @@
 
 static Store_Result_t OpenSource(Recording_Stream_t *s, uint32_t fragment)
 {
-  char path[40];
   uint32_t size, count;
-  uint8_t header[AVI_HEADER_SIZE], actual[16], expected[16];
+  uint8_t header[MP4_HEADER_SIZE], actual[16], expected[16];
   AVI_Info_t info;
   Store_Result_t result;
   if (s->opened_fragment == fragment) return STORE_OK;
   result = Store_Close(&s->source);
   s->opened_fragment = 0;
   if (result != STORE_OK) return result;
-  Recording_Path(path, s->id, fragment, "AVI");
-  result = Store_Stat(path, &size);
+  result = Recording_OpenFragment(&s->source, s->id, fragment, &size);
   if (result != STORE_OK) return result;
-  result = Store_Open(&s->source, path, STORE_READ);
-  if (result != STORE_OK) return result;
-  if (Store_Read(&s->source, header, sizeof(header)) != STORE_OK ||
+  if (Store_Read(&s->source, header, AVI_HEADER_SIZE) != STORE_OK) return STORE_IO;
+  if (!memcmp(header + 4, "ftyp", 4))
+  {
+    MP4_Info_t mp4;
+    if (size <= MP4_HEADER_SIZE || Store_Read(&s->source, header + AVI_HEADER_SIZE, MP4_HEADER_SIZE - AVI_HEADER_SIZE) != STORE_OK ||
+        !MP4_Parse(header, &mp4) || (uint64_t)mp4.frames * (MP4_PACKET_SIZE + 5) > size - MP4_HEADER_SIZE) return STORE_IO;
+    if (fragment == 1) { s->format = mp4.format; s->mp4 = mp4; }
+    if (memcmp(&s->format, &mp4.format, sizeof(mp4.format)) || s->mp4.sps_size != mp4.sps_size || s->mp4.pps_size != mp4.pps_size ||
+        memcmp(s->mp4.sps, mp4.sps, mp4.sps_size) || memcmp(s->mp4.pps, mp4.pps, mp4.pps_size)) return STORE_IO;
+    s->source_bytes = size - MP4_HEADER_SIZE; s->source_frames = mp4.frames;
+    s->opened_fragment = fragment; s->source_position = s->mp4_frame = 0;
+    return STORE_OK;
+  }
+  if (
       !AVI_Info(header, &info) || size != (info.format.codec == AVI_DIB ? AVI_Size(&info.format, info.frames) : AVI_CompressedSize(&info))) return STORE_IO;
   AVI_Format_t format = info.format; count = info.frames;
   if (format.width > 320 || format.height > 240) return STORE_IO;
@@ -72,13 +81,20 @@ Store_Result_t Recording_StreamOpen(Recording_Stream_t *s, uint32_t id)
     if (result != STORE_OK) { Recording_StreamClose(s); return result; }
     if (s->source_frames > UINT32_MAX - s->frames) { Recording_StreamClose(s); return STORE_FULL; }
     s->frames += s->source_frames;
+    if (s->format.codec == AVI_H264) s->size += s->source_bytes;
     if (s->format.codec == AVI_MJPEG)
     {
       s->size += s->source_bytes + 32ULL + 8ULL * s->source_frames;
       if (i == 1) { s->segment_bytes = s->source_bytes; s->segment_frames = s->source_frames; }
     }
   }
-  if (s->format.codec == AVI_MJPEG)
+  if (s->format.codec == AVI_H264)
+  {
+    s->size += MP4_HEADER_SIZE; s->mp4.frames = s->frames;
+    if (!MP4_Header(s->header, &s->mp4)) { Recording_StreamClose(s); return STORE_IO; }
+    s->segment = 1;
+  }
+  else if (s->format.codec == AVI_MJPEG)
   {
     s->size += 524ULL + 16ULL * s->fragments + 24ULL * (s->fragments - 1);
     s->segment = 1; s->extended = 1;
@@ -215,6 +231,49 @@ static Store_Result_t CompressedRead(Recording_Stream_t *s, uint8_t *out, uint32
   return STORE_OK;
 }
 
+static Store_Result_t Mp4Read(Recording_Stream_t *s, uint8_t *out, uint32_t capacity, uint32_t *read)
+{
+  *read = 0;
+  while (capacity && s->position < s->size)
+  {
+    const uint8_t *memory = NULL; uint32_t available;
+    if (s->position < MP4_HEADER_SIZE)
+    { memory = s->header + (uint32_t)s->position; available = MP4_HEADER_SIZE - (uint32_t)s->position; }
+    else
+    {
+      Store_Result_t result = OpenSource(s, s->segment); if (result != STORE_OK) return result;
+      if (!s->packet_left)
+      {
+        if (s->mp4_frame == s->source_frames)
+        {
+          if (s->source_position != s->source_bytes || s->segment >= s->fragments) return STORE_IO;
+          s->source_first += s->source_frames;
+          result = OpenSource(s, ++s->segment); if (result != STORE_OK) return result;
+        }
+        uint8_t key; uint32_t bytes;
+        if (s->source_bytes - s->source_position < MP4_PACKET_SIZE ||
+            Store_Read(&s->source, s->packet, sizeof(s->packet)) != STORE_OK ||
+            !MP4_ParsePacket(s->packet, s->mp4_frame, &bytes, &key) ||
+            bytes > s->source_bytes - s->source_position - MP4_PACKET_SIZE || (!s->mp4_frame && !key)) return STORE_IO;
+        MP4_Packet(s->packet, s->source_first + s->mp4_frame, bytes, key);
+        s->packet_at = 0; s->packet_left = MP4_PACKET_SIZE + bytes;
+        ++s->mp4_frame;
+      }
+      if (s->packet_at < MP4_PACKET_SIZE)
+      { memory = s->packet + s->packet_at; available = MP4_PACKET_SIZE - s->packet_at; }
+      else available = s->packet_left;
+    }
+    if (available > capacity) available = capacity;
+    if (memory) memcpy(out, memory, available);
+    else if (Store_Read(&s->source, out, available) != STORE_OK) return STORE_IO;
+    if (s->position >= MP4_HEADER_SIZE)
+    { s->packet_at += available; s->packet_left -= available; s->source_position += available; }
+    out += available; *read += available; capacity -= available; s->position += available;
+  }
+  if (s->position == s->size && (s->packet_left || s->mp4_frame != s->source_frames || s->segment != s->fragments)) return STORE_IO;
+  return STORE_OK;
+}
+
 Store_Result_t Recording_StreamRead(Recording_Stream_t *s, void *data, uint32_t capacity, uint32_t *read)
 {
   uint8_t *out = data, small[224];
@@ -222,6 +281,7 @@ Store_Result_t Recording_StreamRead(Recording_Stream_t *s, void *data, uint32_t 
   uint64_t index_at = AVI_HEADER_SIZE + (uint64_t)chunk * s->frames;
   *read = 0;
   if (!s->size) return STORE_IO;
+  if (s->format.codec == AVI_H264) return Mp4Read(s, data, capacity, read);
   if (s->format.codec == AVI_MJPEG) return CompressedRead(s, data, capacity, read);
   while (capacity && s->position < s->size)
   {

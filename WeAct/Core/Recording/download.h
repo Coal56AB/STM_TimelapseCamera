@@ -8,7 +8,7 @@ typedef struct
   Store_File_t file;
   uint64_t size, position;
   uint32_t token, touched;
-  uint8_t active, merged;
+  uint8_t active, merged, codec;
 } Download_t;
 void Download_Close(Download_t *download);
 void Download_Process(Download_t *download, uint8_t enabled, uint32_t now);

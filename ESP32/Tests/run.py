@@ -9,3 +9,7 @@ subprocess.run(['g++', '-std=c++11', '-DCONFIG_IDF_TARGET_ESP32S3=1', '-DARDUINO
                 '-I' + str(link), str(root / 'Tests/test_link.cpp'), str(link / 'CameraLink.cpp'),
                 '-o', str(build / 'test_link')], check=True)
 subprocess.run([str(build / 'test_link')], check=True)
+subprocess.run(['g++', '-std=c++11', '-DCONFIG_IDF_TARGET_ESP32S3=1', '-DARDUINO_USB_MODE=1', '-DARDUINO_USB_CDC_ON_BOOT=1', '-Wall', '-Wextra', '-Werror',
+                '-fsanitize=address,undefined', '-g', '-I' + str(root / 'Tests'), '-I' + str(link),
+                str(root / 'Tests/test_wifi.cpp'), str(link / 'WifiAccessPoint.cpp'), '-o', str(build / 'test_wifi')], check=True)
+subprocess.run([str(build / 'test_wifi')], check=True)

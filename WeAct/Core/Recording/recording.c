@@ -1,12 +1,23 @@
 #include "recording.h"
+#include "recording_mp4.h"
 #include "image_text.h"
 #include "avi_compressed.h"
 #include "jpeg_frame.h"
+#include "media_memory.h"
 #include <stdio.h>
 #include <string.h>
 
 typedef struct { uint32_t min, max, after, next, count; } Scan_t;
-static uint32_t frame_sizes[7500] __attribute__((section(".bss.dma_buffer"), aligned(32)));
+#define frame_sizes ((uint32_t *)Media_Memory)
+
+Store_Result_t Recording_OpenFragment(Store_File_t *file, uint32_t id, uint32_t part, uint32_t *size)
+{
+  char path[40];
+  Recording_Path(path, id, part, "MP4");
+  Store_Result_t result = Store_Stat(path, size);
+  if (result == STORE_NOT_FOUND) { Recording_Path(path, id, part, "AVI"); result = Store_Stat(path, size); }
+  return result == STORE_OK ? Store_Open(file, path, STORE_READ) : result;
+}
 
 static uint32_t ParseId(const char *name, char prefix, const char *suffix)
 {
@@ -35,6 +46,7 @@ static int ScanFrame(void *context, const char *name, uint8_t directory)
 {
   Scan_t *scan = context;
   uint32_t id = directory ? 0 : ParseId(name, 'F', ".AVI");
+  if (!directory && !id) id = ParseId(name, 'F', ".MP4");
   if (id)
   {
     ++scan->count;
@@ -106,7 +118,7 @@ Store_Result_t Recording_Start(Recording_t *r, const AVI_Format_t *format, uint1
   char path[40];
   uint8_t header[AVI_HEADER_SIZE];
   if (r->active || !fragment_seconds || (uint32_t)format->fps * fragment_seconds > 7500 ||
-      format->codec > AVI_MJPEG || !AVI_Header(header, format, (uint32_t)format->fps * fragment_seconds) || format->width > 320 || format->height > 240) return STORE_IO;
+      format->codec > AVI_H264 || !AVI_Header(header, format, (uint32_t)format->fps * fragment_seconds) || format->width > 320 || format->height > 240) return STORE_IO;
   Store_Result_t result = Store_Scan(RECORDING_ROOT, ScanSession, &scan);
   if (result != STORE_OK) return result;
   if (scan.max == RECORDING_MAX_ID) return STORE_FULL;
@@ -125,6 +137,7 @@ Store_Result_t Recording_Start(Recording_t *r, const AVI_Format_t *format, uint1
 
 static Store_Result_t FinishFragment(Recording_t *r)
 {
+  if (r->format.codec == AVI_H264) return Recording_MP4Finish(r);
   if (!r->file.handle) return STORE_OK;
   uint8_t header[AVI_HEADER_SIZE], index[16 * 32];
   char tmp[40], final[40];
@@ -169,6 +182,7 @@ static Store_Result_t FinishFragment(Recording_t *r)
 
 Store_Result_t Recording_Append(Recording_t *r, const uint8_t *rgb, const char *timestamp)
 {
+  if (r->format.codec == AVI_H264) return Recording_MP4Append(r, rgb, timestamp);
   char path[40];
   uint8_t header[AVI_HEADER_SIZE], row[960], chunk[8];
   Store_Result_t result;
@@ -244,6 +258,10 @@ Store_Result_t Recording_MergeStart(Recording_Merge_t *m, uint32_t id)
   uint64_t size, free_bytes, limit;
   Store_Result_t result;
   if (m->active) return STORE_IO;
+  Recording_Path(path, id, 0, "MP4");
+  result = Store_Stat64(path, &size);
+  if (result == STORE_OK) return STORE_EXISTS;
+  if (result != STORE_NOT_FOUND) return result;
   Recording_Path(path, id, 0, "AVI");
   result = Store_Stat64(path, &size);
   if (result == STORE_OK) return STORE_EXISTS;
@@ -271,9 +289,9 @@ Store_Result_t Recording_MergeProcess(Recording_Merge_t *m)
   uint32_t read;
   Store_Result_t result;
   if (!m->active) return STORE_IO;
-  result = Recording_StreamRead(&m->stream, m->buffer, sizeof(m->buffer), &read);
+  result = Recording_StreamRead(&m->stream, Media_Memory, 16384, &read);
   if (result != STORE_OK) goto failed;
-  result = Store_Write(&m->output, m->buffer, read);
+  result = Store_Write(&m->output, Media_Memory, read);
   if (result != STORE_OK) goto failed;
   if (m->stream.position < m->stream.size) return STORE_OK;
   result = Store_Sync(&m->output);
@@ -281,7 +299,7 @@ Store_Result_t Recording_MergeProcess(Recording_Merge_t *m)
   result = Store_Close(&m->output);
   if (result != STORE_OK) goto failed;
   Recording_Path(tmp, m->stream.id, 0, "TMP");
-  Recording_Path(final, m->stream.id, 0, "AVI");
+  Recording_Path(final, m->stream.id, 0, m->stream.format.codec == AVI_H264 ? "MP4" : "AVI");
   result = Store_Rename(tmp, final);
   if (result != STORE_OK) goto failed;
   Recording_StreamClose(&m->stream);

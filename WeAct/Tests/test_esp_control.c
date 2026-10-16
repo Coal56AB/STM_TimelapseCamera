@@ -19,6 +19,10 @@ void Download_Command(Download_t *d, const char *r, uint32_t now, uint8_t enable
 int main(void)
 {
   Clock_t clock = {0};
+  incoming = "APSSID Camera test"; EspControl_Process(&clock, 0, 1, 0);
+  incoming = "APPASS 12345678"; EspControl_Process(&clock, 0, 1, 0);
+  assert(!strcmp(EspControl_Ssid(), "Camera test"));
+  assert(!strcmp(EspControl_Password(), "12345678"));
   incoming = "STATE 0";
   assert(!EspControl_Process(&clock, 0, 1, 0)); assert(!strcmp(sent, "WIFI 0\n"));
   incoming = "STATE 0";

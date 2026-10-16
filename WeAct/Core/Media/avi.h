@@ -7,7 +7,7 @@
 #include <stdint.h>
 #define AVI_HEADER_SIZE 224U
 #define AVI_MAX_SIZE 0x7fffffffUL
-enum { AVI_DIB = 0, AVI_MJPEG = 1 };
+enum { AVI_DIB = 0, AVI_MJPEG = 1, AVI_H264 = 2 };
 typedef struct { uint16_t width, height, fps, codec; } AVI_Format_t;
 uint32_t AVI_FrameBytes(const AVI_Format_t *format);
 uint32_t AVI_Size(const AVI_Format_t *format, uint32_t frames);

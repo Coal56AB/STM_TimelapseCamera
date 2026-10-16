@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parents[1]
 build = root / 'build/host'
 build.mkdir(parents=True, exist_ok=True)
 sources = ['Tests/test_main.c', 'Tests/host_disk.c', 'Core/Common/button.c', 'Core/Media/avi.c', 'Core/Media/avi_extended.c',
-           'Core/Recording/recording.c', 'Core/Recording/download.c', 'Core/Media/image_text.c', 'Core/Common/font.c', 'Core/Timelapse/timelapse_config.c', 'Core/UI/ui.c',
+           'Core/Recording/recording.c', 'Core/Recording/recording_stream.c', 'Core/Media/avi_compressed.c', 'Core/Media/jpeg_frame.c', 'Core/Recording/download.c', 'Core/Media/image_text.c', 'Core/Common/font.c', 'Core/Timelapse/timelapse_config.c', 'Core/UI/ui.c',
            'Core/Bsp/Storage/store_fatfs.c', 'Core/Storage/FatFs/ff.c', 'Core/Storage/FatFs/ffunicode.c']
 includes = ['Tests', 'Core/Common', 'Core/Media', 'Core/Recording', 'Core/Storage',
             'Core/Timelapse', 'Core/UI', 'Core/Camera', 'Core/Storage/FatFs']

@@ -22,14 +22,14 @@ size_t TestSerial::write(const uint8_t *data, size_t size)
   if (sscanf(command.c_str(), "FILES %lu", &id) == 1)
   {
     if (reply_mode == 5) {
-      std::string bytes(4096, '\0');
+      std::string bytes(16384, '\0');
       for (size_t i = 0; i < bytes.size(); ++i) bytes[i] = (char)(i % 256);
       bytes.replace(100, 7, "WIFI 0\n");
-      rx += "FILE " + std::to_string(id) + " 0 7 7000000000 4096\n" + bytes;
+      rx += "FILE " + std::to_string(id) + " 0 7 7000000000 16384\n" + bytes;
     }
     if (reply_mode == 6) rx += "FILE " + std::to_string(id) + " 3 7 0 0\n";
     if (reply_mode == 7) rx += "FILE " + std::to_string(id - 1) + " 0 7 8 8\nWIFI 0\nXFILE " + std::to_string(id) + " 0 8 0 0\n";
-    if (reply_mode == 8) rx += "FILE " + std::to_string(id) + " 0 7 7000000000 4096\nshort";
+    if (reply_mode == 8) rx += "FILE " + std::to_string(id) + " 0 7 7000000000 16384\nshort";
   }
   return size;
 }
@@ -67,7 +67,7 @@ int main()
   Enable(); Serial.rx = "WIFI 0 bad\n"; link.update(true);
   assert(link.wifiRequested());
   Serial.rx = "WIFI 0\n"; link.update(true); assert(!link.wifiRequested());
-  Enable(); FileReply reply; uint8_t payload[4096];
+  Enable(); FileReply reply; uint8_t payload[16384];
   Serial.reply_mode = 5;
   assert(link.fileCommand("READ 7 0", payload, sizeof(payload), reply));
   assert(reply.size == 7000000000ULL && reply.length == sizeof(payload) && reply.token == 7);

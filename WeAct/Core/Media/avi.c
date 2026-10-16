@@ -52,6 +52,7 @@ int AVI_Parse(const uint8_t h[AVI_HEADER_SIZE], AVI_Format_t *f, uint32_t *frame
   uint32_t w = Get32(h + 176), height = Get32(h + 180), fps = Get32(h + 132);
   if (w > 65535 || height > 65535 || fps > 60) return 0;
   f->width = (uint16_t)w; f->height = (uint16_t)height; f->fps = (uint16_t)fps;
+  f->codec = AVI_DIB;
   *frames = Get32(h + 48);
   return AVI_Header(expected, f, *frames) && !memcmp(h, expected, AVI_HEADER_SIZE);
 }

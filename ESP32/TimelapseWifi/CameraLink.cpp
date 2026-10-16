@@ -4,7 +4,7 @@
 #include <string.h>
 
 void CameraLink::begin() {
-  Serial.setRxBufferSize(8192);
+  Serial.setRxBufferSize(32768);
   Serial.begin(115200);
   Serial.setTxTimeoutMs(50);
 }
@@ -14,7 +14,7 @@ void CameraLink::handleCommand() {
   unsigned long id;
   char extra;
   unsigned status; unsigned long token, count; unsigned long long size;
-  if (sscanf(line_, "FILE %lu %u %lu %llu %lu %c", &id, &status, &token, &size, &count, &extra) == 5 && count <= 4096) {
+  if (sscanf(line_, "FILE %lu %u %lu %llu %lu %c", &id, &status, &token, &size, &count, &extra) == 5 && count <= 16384) {
     remaining_ = count; received_ = 0;
     copyPayload_ = pending_ && id == pending_ && count <= capacity_ && (payload_ || !count);
     if (copyPayload_) {
@@ -37,13 +37,18 @@ void CameraLink::handleCommand() {
 void CameraLink::update(bool wifiEnabled) {
   actual_ = wifiEnabled;
   while (Serial.available()) {
-    char byte = (char)Serial.read();
     if (remaining_) {
-      if (copyPayload_ && payload_) payload_[received_] = (uint8_t)byte;
-      ++received_;
-      if (--remaining_ == 0 && copyPayload_) fileDone_ = true;
+      size_t count = (size_t)Serial.available();
+      if (count > remaining_) count = remaining_;
+      uint8_t discard[64];
+      if (!copyPayload_ && count > sizeof(discard)) count = sizeof(discard);
+      count = Serial.read(copyPayload_ ? payload_ + received_ : discard, count);
+      if (!count || count > remaining_) break;
+      received_ += count; remaining_ -= count;
+      if (!remaining_ && copyPayload_) fileDone_ = true;
       continue;
     }
+    char byte = (char)Serial.read();
     if (byte == '\n') {
       if (!discard_ && length_) { line_[length_] = 0; handleCommand(); }
       length_ = 0; discard_ = false;
@@ -98,7 +103,7 @@ bool CameraLink::fileCommand(const char *operation, uint8_t *data, size_t capaci
               Serial.write((const uint8_t *)request, count) == (size_t)count;
   uint32_t started = millis();
   while (sent && !fileDone_ && requested_ && millis() - started < 10000) {
-    update(actual_); delay(1);
+    update(actual_); if (!Serial.available() && !fileDone_) delay(1);
   }
   pending_ = 0; payload_ = nullptr; copyPayload_ = false; fileWaiting_ = false;
   if (!fileDone_) {

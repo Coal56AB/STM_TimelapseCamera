@@ -4,7 +4,8 @@
 #include <string.h>
 extern USBH_HandleTypeDef hUsbHostHS;
 extern ApplicationTypeDef Appli_state;
-static uint8_t rx[64], tx[4192];
+static uint8_t rx[64];
+static uint8_t tx[16480] __attribute__((section(".bss.dma_buffer"), aligned(32)));
 static char assembled[96];
 static uint16_t received, cursor, length;
 static uint8_t rx_pending, tx_pending, discard;
@@ -16,6 +17,8 @@ int UsbLink_ReadLine(char line[96])
     rx_pending = tx_pending = discard = 0;
     return 0;
   }
+  /* Advance bulk packet states before returning to slower application work. */
+  for (unsigned i = 0; tx_pending && i < 32; ++i) USBH_Process(&hUsbHostHS);
   if (tx_pending) return 0;
   while (cursor < received)
   {

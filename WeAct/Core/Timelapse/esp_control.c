@@ -10,7 +10,7 @@ uint8_t EspControl_Process(Clock_t *clock, uint8_t wifi_requested, uint8_t sd_re
   static uint32_t seen;
   static uint8_t wifi;
   static Download_t download;
-  static uint8_t payload[DOWNLOAD_BLOCK_SIZE];
+  static uint8_t payload[DOWNLOAD_BLOCK_SIZE] __attribute__((section(".bss.dma_buffer"), aligned(32)));
   char request[96], response[96];
   Download_Process(&download, wifi_requested && sd_ready, now);
   if (UsbLink_ReadLine(request))

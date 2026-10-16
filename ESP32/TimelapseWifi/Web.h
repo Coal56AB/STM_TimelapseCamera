@@ -13,7 +13,7 @@ class Web {
   void fragments();
   void download();
   bool writeClient(const uint8_t *data, size_t length);
-  uint8_t block_[4096];
+  uint8_t block_[16384];
   WebServer server_{80};
   CameraLink &link_;
   bool running_ = false;

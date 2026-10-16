@@ -1,7 +1,7 @@
 #ifndef DOWNLOAD_H
 #define DOWNLOAD_H
 #include "recording.h"
-#define DOWNLOAD_BLOCK_SIZE 4096U
+#define DOWNLOAD_BLOCK_SIZE 16384U
 typedef struct
 {
   Recording_Stream_t stream;

@@ -14,7 +14,7 @@ int UsbLink_SendLine(const char *line) { strcpy(sent, line); return 1; }
 int UsbLink_SendPacket(const char *header, const uint8_t *data, uint32_t length)
 { (void)header; (void)data; (void)length; return 1; }
 void Download_Process(Download_t *d, uint8_t enabled, uint32_t now) { (void)d; (void)enabled; (void)now; }
-void Download_Command(Download_t *d, const char *r, uint32_t now, uint8_t enabled, char h[96], uint8_t data[4096], uint32_t *n)
+void Download_Command(Download_t *d, const char *r, uint32_t now, uint8_t enabled, char h[96], uint8_t data[DOWNLOAD_BLOCK_SIZE], uint32_t *n)
 { (void)d; (void)r; (void)now; (void)enabled; (void)data; h[0] = 0; *n = 0; }
 int main(void)
 {

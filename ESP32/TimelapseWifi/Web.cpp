@@ -69,7 +69,7 @@ bool Web::writeClient(const uint8_t *data, size_t length) {
     if (sent) { data += sent; length -= sent; progress = millis(); }
     else if (millis() - progress >= 5000) return false;
     link_.update(true);
-    delay(1);
+    if (!sent) delay(1);
   }
   return !length;
 }

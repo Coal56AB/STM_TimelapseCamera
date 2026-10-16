@@ -72,6 +72,7 @@ Store_Result_t Store_Write(Store_File_t *file, const void *data, uint32_t length
 Store_Result_t Store_Seek(Store_File_t *file, uint32_t offset)
 {
   if (!Valid(file)) return STORE_IO;
+  if (f_tell((FIL *)file->handle) == offset) return STORE_OK;
   FRESULT result = f_lseek(file->handle, offset);
   return result == FR_OK && f_tell((FIL *)file->handle) == offset ? STORE_OK : STORE_IO;
 }

@@ -144,7 +144,7 @@ static void Action(UI_Action_t action)
   else if (action == UI_RECORD)
   {
     if (!app.camera_ready) { Message(app.camera_message); return; }
-    AVI_Format_t format = {Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1], TIMELAPSE_PLAYBACK_FPS};
+    AVI_Format_t format = {Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1], TIMELAPSE_PLAYBACK_FPS, AVI_MJPEG};
     result = Recording_Start(&app.recording, &format, Timelapse_Fragments[app.config.fragment]);
     if (result != STORE_OK) { StorageError(result); return; }
     Camera_Stop(); app.capture_pending = 0;

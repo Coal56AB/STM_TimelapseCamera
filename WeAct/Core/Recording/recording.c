@@ -1,10 +1,12 @@
 #include "recording.h"
 #include "image_text.h"
-#include "avi_extended.h"
+#include "avi_compressed.h"
+#include "jpeg_frame.h"
 #include <stdio.h>
 #include <string.h>
 
 typedef struct { uint32_t min, max, after, next, count; } Scan_t;
+static uint32_t frame_sizes[7500] __attribute__((section(".bss.dma_buffer"), aligned(32)));
 
 static uint32_t ParseId(const char *name, char prefix, const char *suffix)
 {
@@ -54,6 +56,17 @@ Store_Result_t Recording_NextFragment(uint32_t id, uint32_t after, uint32_t *nex
   return result;
 }
 
+Store_Result_t Recording_FragmentCount(uint32_t id, uint32_t *count)
+{
+  Scan_t scan = {0}; char path[40];
+  Recording_Path(path, id, 0, NULL);
+  Store_Result_t result = Store_Scan(path, ScanFrame, &scan);
+  if (result != STORE_OK) return result;
+  if (!scan.count) return STORE_NOT_FOUND;
+  if (scan.count != scan.max) return STORE_IO;
+  *count = scan.count; return STORE_OK;
+}
+
 void Recording_Path(char path[40], uint32_t id, uint32_t frame, const char *extension)
 {
   if (frame) snprintf(path, 40, RECORDING_ROOT "/R%07lu/F%07lu.%s",
@@ -92,7 +105,8 @@ Store_Result_t Recording_Start(Recording_t *r, const AVI_Format_t *format, uint1
   Scan_t scan = {0};
   char path[40];
   uint8_t header[AVI_HEADER_SIZE];
-  if (r->active || !fragment_seconds || !AVI_Header(header, format, (uint32_t)format->fps * fragment_seconds) || format->width > 320 || format->height > 240) return STORE_IO;
+  if (r->active || !fragment_seconds || (uint32_t)format->fps * fragment_seconds > 7500 ||
+      format->codec > AVI_MJPEG || !AVI_Header(header, format, (uint32_t)format->fps * fragment_seconds) || format->width > 320 || format->height > 240) return STORE_IO;
   Store_Result_t result = Store_Scan(RECORDING_ROOT, ScanSession, &scan);
   if (result != STORE_OK) return result;
   if (scan.max == RECORDING_MAX_ID) return STORE_FULL;
@@ -102,6 +116,7 @@ Store_Result_t Recording_Start(Recording_t *r, const AVI_Format_t *format, uint1
   if (result != STORE_OK) return result;
   r->format = *format;
   r->frames = 0; r->fragment = 1; r->fragment_frames = 0;
+  r->data_bytes = r->max_frame = 0;
   r->fragment_limit = (uint32_t)format->fps * fragment_seconds;
   r->file = (Store_File_t){0};
   r->active = 1;
@@ -114,17 +129,32 @@ static Store_Result_t FinishFragment(Recording_t *r)
   uint8_t header[AVI_HEADER_SIZE], index[16 * 32];
   char tmp[40], final[40];
   Store_Result_t result;
+  uint32_t offset = 0;
   AVI_IndexHeader(index, r->fragment_frames);
   result = Store_Write(&r->file, index, 8);
   for (uint32_t first = 0; result == STORE_OK && first < r->fragment_frames; first += 32)
   {
     uint32_t count = r->fragment_frames - first;
     if (count > 32) count = 32;
-    for (uint32_t i = 0; i < count; ++i) AVI_IndexEntry(index + i * 16, &r->format, first + i);
-    result = Store_Write(&r->file, index, count * 16);
+    for (uint32_t i = 0; i < count; ++i)
+    {
+      if (r->format.codec == AVI_MJPEG)
+      {
+        uint32_t size = frame_sizes[first + i];
+        AVI_CompressedIndex(index + i * 16, offset, size);
+        offset += 8 + size + (size & 1);
+      }
+      else AVI_IndexEntry(index + i * 16, &r->format, first + i);
+    }
+    if (result == STORE_OK) result = Store_Write(&r->file, index, count * 16);
   }
   if (result == STORE_OK) result = Store_Seek(&r->file, 0);
-  AVI_Header(header, &r->format, r->fragment_frames);
+  if (r->format.codec == AVI_MJPEG)
+  {
+    AVI_Info_t info = {r->format, r->fragment_frames, r->data_bytes, r->max_frame};
+    AVI_CompressedHeader(header, &info);
+  }
+  else AVI_Header(header, &r->format, r->fragment_frames);
   if (result == STORE_OK) result = Store_Write(&r->file, header, sizeof(header));
   if (result == STORE_OK) result = Store_Sync(&r->file);
   Store_Result_t closed = Store_Close(&r->file);
@@ -133,7 +163,7 @@ static Store_Result_t FinishFragment(Recording_t *r)
   Recording_Path(tmp, r->id, r->fragment, "TMP");
   Recording_Path(final, r->id, r->fragment, "AVI");
   result = Store_Rename(tmp, final);
-  if (result == STORE_OK) { ++r->fragment; r->fragment_frames = 0; }
+  if (result == STORE_OK) { ++r->fragment; r->fragment_frames = 0; r->data_bytes = r->max_frame = 0; }
   return result;
 }
 
@@ -153,18 +183,34 @@ Store_Result_t Recording_Append(Recording_t *r, const uint8_t *rgb, const char *
     result = Store_Write(&r->file, header, sizeof(header));
     if (result != STORE_OK) goto failed;
   }
-  AVI_ChunkHeader(chunk, &r->format);
-  result = Store_Write(&r->file, chunk, sizeof(chunk));
-  if (result != STORE_OK) goto failed;
-  /* DIB: строки снизу вверх; кадр DCMI: RGB565 MSB first сверху вниз. */
-  for (uint16_t y = r->format.height; y > 0; --y)
+  if (r->format.codec == AVI_MJPEG)
+  {
+    uint32_t size = 0; const uint8_t *jpeg;
+    if (!JPEG_Frame(rgb, r->format.width, r->format.height, timestamp, &jpeg, &size))
+    { result = STORE_IO; goto failed; }
+    memcpy(chunk, "00dc", 4); AVI_Write32(chunk + 4, size);
+    result = Store_Write(&r->file, chunk, sizeof(chunk));
+    if (result == STORE_OK) result = Store_Write(&r->file, jpeg, size);
+    if (result == STORE_OK && (size & 1)) { const uint8_t pad = 0; result = Store_Write(&r->file, &pad, 1); }
+    if (result != STORE_OK) goto failed;
+    frame_sizes[r->fragment_frames] = size;
+    r->data_bytes += 8 + size + (size & 1);
+    if (size > r->max_frame) r->max_frame = size;
+  }
+  else
+  {
+    AVI_ChunkHeader(chunk, &r->format);
+    result = Store_Write(&r->file, chunk, sizeof(chunk));
+    if (result != STORE_OK) goto failed;
+  }
+  if (r->format.codec == AVI_DIB) for (uint16_t y = r->format.height; y > 0; --y)
   {
     AVI_ConvertRow(row, rgb + (y - 1U) * r->format.width * 2U, r->format.width);
     ImageText_Row(row, r->format.width, r->format.height, (uint16_t)(y - 1U), timestamp);
     result = Store_Write(&r->file, row, stride);
     if (result != STORE_OK) goto failed;
   }
-  result = Store_Sync(&r->file);
+  result = r->format.codec == AVI_DIB || (r->fragment_frames + 1) % 25 == 0 ? Store_Sync(&r->file) : STORE_OK;
   if (result != STORE_OK) goto failed;
   ++r->frames; ++r->fragment_frames;
   if (r->fragment_frames == r->fragment_limit)
@@ -190,153 +236,6 @@ void Recording_Abort(Recording_t *r)
   /* После Store_Reset старый дескриптор нельзя закрывать с записью на новую карту. */
   r->file = (Store_File_t){0};
   r->active = 0;
-}
-
-static Store_Result_t OpenSource(Recording_Stream_t *s, uint32_t fragment)
-{
-  char path[40];
-  uint32_t size, count;
-  uint8_t header[AVI_HEADER_SIZE], actual[16], expected[16];
-  AVI_Format_t format;
-  Store_Result_t result;
-  if (s->opened_fragment == fragment) return STORE_OK;
-  result = Store_Close(&s->source);
-  s->opened_fragment = 0;
-  if (result != STORE_OK) return result;
-  Recording_Path(path, s->id, fragment, "AVI");
-  result = Store_Stat(path, &size);
-  if (result != STORE_OK) return result;
-  result = Store_Open(&s->source, path, STORE_READ);
-  if (result != STORE_OK) return result;
-  if (Store_Read(&s->source, header, sizeof(header)) != STORE_OK ||
-      !AVI_Parse(header, &format, &count) || size != AVI_Size(&format, count)) return STORE_IO;
-  if (format.width > 320 || format.height > 240) return STORE_IO;
-  if (fragment == 1) s->format = format;
-  if (format.width != s->format.width || format.height != s->format.height || format.fps != s->format.fps) return STORE_IO;
-  AVI_ChunkHeader(expected, &format);
-  if (Store_Read(&s->source, actual, 8) != STORE_OK || memcmp(actual, expected, 8)) return STORE_IO;
-  if (Store_Seek(&s->source, AVI_HEADER_SIZE + count * (8 + AVI_FrameBytes(&format))) != STORE_OK) return STORE_IO;
-  AVI_IndexHeader(expected, count);
-  if (Store_Read(&s->source, actual, 8) != STORE_OK || memcmp(actual, expected, 8)) return STORE_IO;
-  /* Проверяем крайние записи индекса, промежуточные chunk headers — при чтении. */
-  AVI_IndexEntry(expected, &format, 0);
-  if (Store_Read(&s->source, actual, 16) != STORE_OK || memcmp(actual, expected, 16)) return STORE_IO;
-  if (Store_Seek(&s->source, size - 16) != STORE_OK) return STORE_IO;
-  AVI_IndexEntry(expected, &format, count - 1);
-  if (Store_Read(&s->source, actual, 16) != STORE_OK || memcmp(actual, expected, 16)) return STORE_IO;
-  s->opened_fragment = fragment;
-  s->source_frames = count;
-  return STORE_OK;
-}
-
-Store_Result_t Recording_StreamOpen(Recording_Stream_t *s, uint32_t id)
-{
-  Scan_t scan = {0};
-  char path[40];
-  Store_Result_t result;
-  memset(s, 0, sizeof(*s));
-  if (!id || id > RECORDING_MAX_ID) return STORE_NOT_FOUND;
-  s->id = id;
-  Recording_Path(path, id, 0, NULL);
-  result = Store_Scan(path, ScanFrame, &scan);
-  if (result != STORE_OK) return result;
-  if (!scan.count) return STORE_NOT_FOUND;
-  if (scan.count != scan.max) return STORE_IO;
-  s->fragments = scan.count;
-  for (uint32_t i = 1; i <= s->fragments; ++i)
-  {
-    result = OpenSource(s, i);
-    if (result != STORE_OK) { Recording_StreamClose(s); return result; }
-    if (s->source_frames > UINT32_MAX - s->frames) { Recording_StreamClose(s); return STORE_FULL; }
-    s->frames += s->source_frames;
-  }
-  s->size = AVI_Size(&s->format, s->frames);
-  s->extended = !s->size;
-  if (s->size) AVI_Header(s->header, &s->format, s->frames);
-  else s->size = AVI_ExtendedSize(&s->format, s->frames);
-  Store_Close(&s->source); s->opened_fragment = 0; s->source_frames = 0; s->source_first = 0;
-  return STORE_OK;
-}
-
-Store_Result_t Recording_StreamRead(Recording_Stream_t *s, void *data, uint32_t capacity, uint32_t *read)
-{
-  uint8_t *out = data, small[224];
-  uint32_t chunk = AVI_FrameBytes(&s->format) + 8;
-  uint64_t index_at = AVI_HEADER_SIZE + (uint64_t)chunk * s->frames;
-  *read = 0;
-  if (!s->size) return STORE_IO;
-  while (capacity && s->position < s->size)
-  {
-    uint32_t available, offset = 0, frame = 0;
-    const uint8_t *memory = NULL;
-    if (s->extended)
-    {
-      if (AVI_ExtendedRegion(&s->format, s->frames, s->position, small, &available, &frame, &offset)) memory = small;
-    }
-    else if (s->position < AVI_HEADER_SIZE)
-    {
-      available = AVI_HEADER_SIZE - (uint32_t)s->position;
-      memory = s->header + (uint32_t)s->position;
-    }
-    else if (s->position < index_at)
-    {
-      frame = (uint32_t)((s->position - AVI_HEADER_SIZE) / chunk);
-      offset = (uint32_t)((s->position - AVI_HEADER_SIZE) % chunk);
-      available = chunk - offset;
-    }
-    else if (s->position < index_at + 8)
-    {
-      AVI_IndexHeader(small, s->frames);
-      offset = (uint32_t)(s->position - index_at);
-      memory = small + offset; available = 8 - offset;
-    }
-    else
-    {
-      offset = (uint32_t)(s->position - index_at - 8);
-      AVI_IndexEntry(small, &s->format, offset / 16);
-      memory = small + offset % 16; available = 16 - offset % 16;
-    }
-    if (!memory)
-    {
-      Store_Result_t result;
-      if (!s->opened_fragment)
-      {
-        result = OpenSource(s, 1);
-        if (result != STORE_OK) return result;
-      }
-      while (frame >= s->source_first + s->source_frames)
-      {
-        s->source_first += s->source_frames;
-        result = OpenSource(s, s->opened_fragment + 1);
-        if (result != STORE_OK) return result;
-      }
-      uint32_t source_offset = AVI_HEADER_SIZE + (frame - s->source_first) * chunk;
-      if (offset == 0)
-      {
-        uint8_t actual[8]; AVI_ChunkHeader(small, &s->format);
-        if (Store_Seek(&s->source, source_offset) != STORE_OK ||
-            Store_Read(&s->source, actual, 8) != STORE_OK || memcmp(actual, small, 8)) return STORE_IO;
-      }
-      result = Store_Seek(&s->source, source_offset + offset);
-      if (result != STORE_OK) return result;
-    }
-    if (available > capacity) available = capacity;
-    if (memory) memcpy(out, memory, available);
-    else
-    {
-      Store_Result_t result = Store_Read(&s->source, out, available);
-      if (result != STORE_OK) return result;
-    }
-    out += available; capacity -= available; *read += available; s->position += available;
-  }
-  return STORE_OK;
-}
-
-void Recording_StreamClose(Recording_Stream_t *s)
-{
-  Store_Close(&s->source);
-  s->opened_fragment = 0;
-  s->size = 0;
 }
 
 Store_Result_t Recording_MergeStart(Recording_Merge_t *m, uint32_t id)

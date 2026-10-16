@@ -1,4 +1,5 @@
 #include "download.h"
+#include "avi_compressed.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -20,7 +21,12 @@ static Store_Result_t Fragment(uint32_t id, uint32_t part, Store_File_t *file, u
   Store_Result_t result = Store_Stat(path, size);
   if (result == STORE_OK) result = Store_Open(file, path, STORE_READ);
   if (result == STORE_OK) result = Store_Read(file, header, sizeof(header));
-  if (result == STORE_OK && (!AVI_Parse(header, format, frames) || *size != AVI_Size(format, *frames))) result = STORE_IO;
+  if (result == STORE_OK)
+  {
+    AVI_Info_t info;
+    if (!AVI_Info(header, &info) || *size != (info.format.codec == AVI_DIB ? AVI_Size(&info.format, info.frames) : AVI_CompressedSize(&info))) result = STORE_IO;
+    else { *format = info.format; *frames = info.frames; }
+  }
   if (result == STORE_OK) result = Store_Seek(file, 0);
   return result;
 }

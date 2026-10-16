@@ -10,6 +10,7 @@
 SPI_HandleTypeDef hspi4;
 TIM_HandleTypeDef htim1;
 static uint8_t source[320 * 240 * 2], screen[160 * 80 * 2], original[sizeof(screen)];
+static unsigned transfers;
 void HAL_GPIO_WritePin(int port, int pin, int value) { (void)port; (void)pin; (void)value; }
 HAL_StatusTypeDef HAL_SPI_Transmit(SPI_HandleTypeDef *spi, uint8_t *data, uint16_t size, uint32_t timeout)
 { (void)spi; (void)data; (void)size; (void)timeout; return HAL_OK; }
@@ -28,6 +29,7 @@ int32_t ST7735_FillRect(ST7735_Object_t *obj, uint32_t x, uint32_t y, uint32_t w
 }
 int32_t ST7735_FillRGBRect(ST7735_Object_t *obj, uint32_t x, uint32_t y, uint8_t *data, uint32_t w, uint32_t h)
 {
+  ++transfers;
   (void)obj; assert(x + w <= 160 && y + h <= 80);
   for (unsigned row = 0; row < h; ++row) memcpy(screen + ((y + row) * 160 + x) * 2, data + row * w * 2, w * 2);
   return ST7735_OK;
@@ -69,5 +71,15 @@ int main(void)
   Display_Clear(); Display_OverlayLine(0, "", 0);
   for (unsigned i = 0; i < sizeof(screen); ++i) assert(screen[i] == 0);
   puts("PASS: full-screen center crop, RGB565 byte order, transparent HUD, background restore");
+  Display_Line(0, "WIFI: ON", 0);
+  unsigned before = transfers;
+  for (unsigned i = 0; i < 10; ++i) Display_Line(0, "WIFI: ON", 0);
+  assert(transfers == before);
+  Display_Line(0, "WIFI: ON", 1); assert(transfers == ++before);
+  Display_Line(0, "WIFI: OFF", 1); assert(transfers == ++before);
+  Display_OverlayLine(0, "READY", 0); ++before;
+  Display_Line(0, "WIFI: OFF", 1); assert(transfers == ++before);
+  Display_Clear(); Display_Line(0, "WIFI: OFF", 1); assert(transfers == ++before);
+  puts("PASS: unchanged menu lines avoid SPI, changed content and cleared screens redraw");
   return 0;
 }

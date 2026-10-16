@@ -2,6 +2,8 @@
 #include "recording.h"
 #include "download.h"
 #include "avi_extended.h"
+#include "avi_compressed.h"
+#include "jpeg_frame.h"
 #include "timelapse_config.h"
 #include "ui.h"
 #include "display.h"
@@ -122,11 +124,11 @@ static void SettingsTests(void)
 }
 static void DownloadTests(void)
 {
-  Fresh(); AVI_Format_t format = {4, 2, 25}; Recording_t r = {0};
+  Fresh(); AVI_Format_t format = {4, 2, 25, AVI_DIB}; Recording_t r = {0};
   assert(Recording_Start(&r, &format, 30) == STORE_OK);
   for (unsigned i = 0; i < 752; ++i) assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
   assert(Recording_Stop(&r) == STORE_OK);
-  Download_t download = {0}; char header[96], command[96]; uint8_t block[4096]; uint32_t length;
+  Download_t download = {0}; char header[96], command[96]; uint8_t block[DOWNLOAD_BLOCK_SIZE]; uint32_t length;
   Download_Command(&download, "FILES 1 LIST 0", 0, 1, header, block, &length);
   block[length] = 0; assert(strstr((char *)block, "\"fragments\":2"));
   Download_Command(&download, "FILES 2 LIST 1", 0, 1, header, block, &length);
@@ -136,7 +138,7 @@ static void DownloadTests(void)
   Download_Command(&download, "FILES 4 OPEN 1 0", 0, 1, header, block, &length);
   assert(download.active && download.size == AVI_Size(&format, 752));
   Recording_Stream_t expected; assert(Recording_StreamOpen(&expected, 1) == STORE_OK);
-  uint8_t bytes[4096]; uint32_t read;
+  uint8_t bytes[DOWNLOAD_BLOCK_SIZE]; uint32_t read;
   while (download.position < download.size)
   {
     snprintf(command, sizeof(command), "FILES 5 READ %lu %llu", (unsigned long)download.token, (unsigned long long)download.position);
@@ -166,7 +168,7 @@ static void DownloadTests(void)
 static void FragmentTests(void)
 {
   /* Маленький кадр сохраняет реальное число кадров и уменьшает объём теста. */
-  AVI_Format_t format = {4, 2, 25}, parsed;
+  AVI_Format_t format = {4, 2, 25, AVI_DIB}, parsed;
   const uint16_t seconds[] = {30, 60, 120, 300};
   for (unsigned option = 0; option < 4; ++option)
   {
@@ -214,7 +216,7 @@ static void HotplugTests(void)
   Fresh(); Host_Present = 0;
   assert(Store_Init() != STORE_OK);
   Host_Present = 1; assert(Store_Init() == STORE_OK && Recording_Init() == STORE_OK);
-  Recording_t r = {0}; AVI_Format_t format = {4, 2, 25}; uint32_t size;
+  Recording_t r = {0}; AVI_Format_t format = {4, 2, 25, AVI_DIB}; uint32_t size;
   assert(Recording_Start(&r, &format, 30) == STORE_OK);
   for (unsigned i = 0; i < 750; ++i) assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
   assert(Recording_Append(&r, pixels, NULL) == STORE_OK);
@@ -236,7 +238,7 @@ static void HotplugTests(void)
 }
 static void RecordingTests(void)
 {
-  AVI_Format_t format = {320, 240, 25}; Recording_t r = {0}; Recording_Merge_t merge = {0};
+  AVI_Format_t format = {320, 240, 25, AVI_DIB}; Recording_t r = {0}; Recording_Merge_t merge = {0};
   Recording_Stream_t stream; uint32_t read, total = 0, size;
   Fresh();
   for (unsigned y = 0; y < 240; ++y) for (unsigned x = 0; x < 320; ++x)
@@ -282,7 +284,7 @@ static void RecordingTests(void)
 static void TimestampTests(void)
 {
   Fresh();
-  AVI_Format_t format = {160, 120, 25};
+  AVI_Format_t format = {160, 120, 25, AVI_DIB};
   Recording_t r = {0};
   memset(pixels, 0x55, 160 * 120 * 2);
   assert(Recording_Start(&r, &format, 30) == STORE_OK);
@@ -309,7 +311,7 @@ static void TimestampTests(void)
 static void LargeSessionTests(void)
 {
   if (Host_FormatType != FM_EXFAT) return;
-  Fresh(); AVI_Format_t format = {320, 240, 25};
+  Fresh(); AVI_Format_t format = {320, 240, 25, AVI_DIB};
   assert(Store_Mkdir("0:/TL/R0000001") == STORE_OK);
   uint8_t header[224], chunk[8], entry[16];
   uint32_t bytes = AVI_FrameBytes(&format) + 8;
@@ -354,9 +356,108 @@ static void LargeSessionTests(void)
   puts("PASS: three 5-minute QVGA fragments on exFAT, >4 GiB virtual AVI, every source frame and all segment transitions");
 }
 
+static void CompressedTests(void)
+{
+  Fresh(); Recording_t r = {0}; AVI_Format_t format = {320, 240, 1, AVI_MJPEG};
+  assert(Recording_Start(&r, &format, 30) == STORE_OK);
+  for (unsigned frame = 0; frame < 65; ++frame)
+  {
+    for (unsigned y = 0; y < 240; ++y) for (unsigned x = 0; x < 320; ++x)
+    {
+      uint16_t color = y < 120 ? 0xf800 : 0x07ff;
+      if (x >= frame && x < frame + 8) color = 0xffff;
+      pixels[(y * 320 + x) * 2] = (uint8_t)(color >> 8);
+      pixels[(y * 320 + x) * 2 + 1] = (uint8_t)color;
+    }
+    assert(Recording_Append(&r, pixels, "16.10.2026 12:34:56") == STORE_OK);
+  }
+  assert(Recording_Stop(&r) == STORE_OK && r.fragment == 4);
+  uint32_t size;
+  assert(Store_Stat("0:/TL/R0000001/F0000001.AVI", &size) == STORE_OK && size < 1000000);
+  printf("MJPEG: first 30 QVGA test frames: %u bytes (raw BGR24: %u)\n", size, 30U * 230400U);
+  Store_File_t file = {0};
+  assert(Store_Open(&file, "0:/TL/R0000001/F0000001.AVI", STORE_READ) == STORE_OK);
+  FILE *saved = fopen("compressed-fragment.avi", "wb"); assert(saved);
+  uint8_t buffer[16384];
+  for (uint32_t at = 0; at < size;)
+  {
+    uint32_t count = size - at; if (count > sizeof(buffer)) count = sizeof(buffer);
+    assert(Store_Read(&file, buffer, count) == STORE_OK && fwrite(buffer, 1, count, saved) == count); at += count;
+  }
+  fclose(saved); Store_Close(&file);
+  Recording_Stream_t stream;
+  assert(Recording_StreamOpen(&stream, 1) == STORE_OK && stream.frames == 65 && stream.format.codec == AVI_MJPEG);
+  uint64_t total = stream.size;
+  saved = fopen("compressed-merged.avi", "wb"); assert(saved);
+  while (stream.position < stream.size)
+  {
+    uint32_t read;
+    assert(Recording_StreamRead(&stream, buffer, sizeof(buffer), &read) == STORE_OK && read);
+    assert(fwrite(buffer, 1, read, saved) == read);
+  }
+  fclose(saved); Recording_StreamClose(&stream);
+  assert(Recording_StreamOpen(&stream, 1) == STORE_OK);
+  saved = fopen("compressed-merged.avi", "rb"); assert(saved);
+  const unsigned capacities[] = {1, 7, 31, 4093, 16384}; unsigned turn = 0;
+  while (stream.position < total)
+  {
+    uint32_t read; uint8_t expected[16384];
+    assert(Recording_StreamRead(&stream, buffer, capacities[turn++ % 5], &read) == STORE_OK && read);
+    assert(fread(expected, 1, read, saved) == read && !memcmp(buffer, expected, read));
+  }
+  fclose(saved); Recording_StreamClose(&stream);
+  Recording_Merge_t merge = {0}; assert(Recording_MergeStart(&merge, 1) == STORE_OK);
+  while (merge.active) assert(Recording_MergeProcess(&merge) == STORE_OK);
+  assert(Store_Open(&file, "0:/TL/R0000001/ALL.AVI", STORE_READ) == STORE_OK);
+  saved = fopen("compressed-merged.avi", "rb"); assert(saved);
+  for (uint64_t at = 0; at < total;)
+  {
+    uint32_t count = total - at < sizeof(buffer) ? (uint32_t)(total - at) : sizeof(buffer);
+    uint8_t expected[16384];
+    assert(Store_Read(&file, buffer, count) == STORE_OK);
+    assert(fread(expected, 1, count, saved) == count && !memcmp(buffer, expected, count)); at += count;
+  }
+  fclose(saved); Store_Close(&file);
+  Download_t download = {0}; char reply[96], command[96]; uint32_t length;
+  Download_Command(&download, "FILES 1 PARTS 1 0", 0, 1, reply, buffer, &length);
+  buffer[length] = 0; assert(strstr((char *)buffer, "\"frames\":30"));
+  for (unsigned part = 0; part <= 1; ++part)
+  {
+    snprintf(command, sizeof(command), "FILES 2 OPEN 1 %u", part);
+    Download_Command(&download, command, 0, 1, reply, buffer, &length);
+    assert(download.active && download.size == (part ? size : total));
+    saved = fopen(part ? "compressed-fragment.avi" : "compressed-merged.avi", "rb"); assert(saved);
+    while (download.position < download.size)
+    {
+      uint8_t expected[DOWNLOAD_BLOCK_SIZE];
+      snprintf(command, sizeof(command), "FILES 3 READ %lu %llu", (unsigned long)download.token, (unsigned long long)download.position);
+      Download_Command(&download, command, 10, 1, reply, buffer, &length);
+      assert(length && fread(expected, 1, length, saved) == length && !memcmp(buffer, expected, length));
+    }
+    fclose(saved); Download_Close(&download);
+  }
+  /* A failed new recording must not alter the closed MJPEG session. */
+  assert(Recording_Start(&r, &format, 30) == STORE_OK);
+  Host_FailWrite = 0;
+  Store_Result_t failed = Recording_Append(&r, pixels, NULL);
+  if (failed == STORE_OK) failed = Recording_Stop(&r);
+  Host_FailWrite = -1;
+  assert(failed != STORE_OK && !r.active);
+  assert(Store_Init() == STORE_OK);
+  assert(Recording_StreamOpen(&stream, 1) == STORE_OK && stream.frames == 65);
+  Recording_StreamClose(&stream);
+  /* Deterministic high-entropy input exercises the encoder's upper size and buffer bounds. */
+  uint32_t seed = 7;
+  for (unsigned i = 0; i < sizeof(pixels); ++i) { seed = seed * 1664525U + 1013904223U; pixels[i] = (uint8_t)(seed >> 24); }
+  const uint8_t *jpeg; uint32_t bytes;
+  assert(JPEG_Frame(pixels, 320, 240, NULL, &jpeg, &bytes) && bytes < 65536);
+  printf("MJPEG: random QVGA frame: %u bytes (raw BGR24: 230400)\n", bytes);
+  puts("PASS: MJPEG recording, 3 fragments, OpenDML merge, bytewise boundaries, large block reads");
+}
+
 static void FailureTests(void)
 {
-  AVI_Format_t format = {160, 120, 25}; uint8_t original[57856], actual[57856];
+  AVI_Format_t format = {160, 120, 25, AVI_DIB}; uint8_t original[57856], actual[57856];
   for (int fail_at = 0; fail_at < 40; ++fail_at)
   {
     Recording_t r = {0}; Fresh(); assert(Recording_Start(&r, &format, 30) == STORE_OK);
@@ -381,7 +482,7 @@ int main(void)
   for (unsigned i = 0; i < sizeof(formats); ++i)
   {
     Host_FormatType = formats[i];
-    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests(); TimestampTests(); DownloadTests(); LargeSessionTests();
+    SettingsTests(); RecordingTests(); FragmentTests(); HotplugTests(); FailureTests(); TimestampTests(); DownloadTests(); LargeSessionTests(); CompressedTests();
     printf("PASS: %s: settings/migration/capture periods, 4 fragment durations, merge/download, hotplug, 40 write failures\n", names[i]);
   }
   return 0;

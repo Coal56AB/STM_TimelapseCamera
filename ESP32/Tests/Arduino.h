@@ -13,8 +13,12 @@ struct TestSerial
   void setRxBufferSize(unsigned) {}
   void begin(unsigned) {}
   void setTxTimeoutMs(unsigned) {}
-  int available() { return !rx.empty() && quota; }
+  int available() { return (int)(rx.size() < quota ? rx.size() : quota); }
   int read() { --quota; char c = rx[0]; rx.erase(0, 1); return c; }
+  size_t read(uint8_t *buffer, size_t size) {
+    size_t count = (size_t)available(); if (count > size) count = size;
+    rx.copy((char *)buffer, count); rx.erase(0, count); quota -= count; return count;
+  }
   size_t write(const uint8_t *data, size_t size);
 };
 extern TestSerial Serial;

@@ -13,6 +13,7 @@ typedef struct
   AVI_Format_t format;
   uint32_t id, frames;
   uint32_t fragment, fragment_frames, fragment_limit;
+  uint32_t data_bytes, max_frame;
   Store_File_t file;
   uint8_t active;
 } Recording_t;
@@ -25,6 +26,7 @@ void Recording_Abort(Recording_t *recording);
 Store_Result_t Recording_Select(uint32_t current, uint32_t *next);
 Store_Result_t Recording_Latest(uint32_t *id);
 Store_Result_t Recording_NextFragment(uint32_t id, uint32_t after, uint32_t *next);
+Store_Result_t Recording_FragmentCount(uint32_t id, uint32_t *count);
 void Recording_Path(char path[40], uint32_t id, uint32_t frame, const char *extension);
 
 /** Последовательное виртуальное AVI для объединения на SD и передачи по USB. */
@@ -36,6 +38,8 @@ typedef struct
   uint64_t size, position;
   uint8_t extended;
   uint32_t fragments, source_frames, source_first;
+  uint32_t source_bytes, max_frame, segment, segment_frames, segment_bytes, catalog_part;
+  uint64_t segment_start, catalog_start;
   uint8_t header[AVI_HEADER_SIZE];
 } Recording_Stream_t;
 Store_Result_t Recording_StreamOpen(Recording_Stream_t *stream, uint32_t id);
@@ -47,7 +51,7 @@ typedef struct
 {
   Recording_Stream_t stream;
   Store_File_t output;
-  uint8_t buffer[4096];
+  uint8_t buffer[16384];
   uint8_t active;
 } Recording_Merge_t;
 Store_Result_t Recording_MergeStart(Recording_Merge_t *merge, uint32_t id);

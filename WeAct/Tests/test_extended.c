@@ -8,7 +8,7 @@
 int main(int argc, char **argv)
 {
   assert(argc == 2);
-  AVI_Format_t format = {320, 240, 25};
+  AVI_Format_t format = {320, 240, 25, AVI_DIB};
   const uint32_t frames = 30000;
   uint64_t size = AVI_ExtendedSize(&format, frames), position = 0;
   assert(size > UINT32_MAX);

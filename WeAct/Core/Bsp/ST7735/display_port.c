@@ -11,6 +11,7 @@ static uint8_t stripe[160 * 12 * 2];
 /* Копия предпросмотра позволяет обновлять надписи во время следующего DMA кадра. */
 static uint8_t preview[160 * 80 * 2];
 static struct { char text[27]; uint8_t active, highlighted; } overlays[6];
+static struct { char text[27]; uint8_t valid, selected; } lines[6];
 
 static int32_t Init(void)
 {
@@ -53,6 +54,7 @@ void Display_Clear(void)
 {
   memset(preview, 0, sizeof(preview));
   memset(overlays, 0, sizeof(overlays));
+  memset(lines, 0, sizeof(lines));
   ST7735_FillRect(&panel, 0, 0, 160, 80, 0);
 }
 static void DrawLine(uint8_t row, const char *text, uint8_t selected, uint8_t overlay)
@@ -86,11 +88,16 @@ static void DrawLine(uint8_t row, const char *text, uint8_t selected, uint8_t ov
 }
 void Display_Line(uint8_t row, const char *text, uint8_t selected)
 {
+  if (row > 5) return;
+  if (lines[row].valid && lines[row].selected == selected && !strncmp(lines[row].text, text, 26)) return;
+  strncpy(lines[row].text, text, 26); lines[row].text[26] = 0;
+  lines[row].valid = 1; lines[row].selected = selected;
   DrawLine(row, text, selected, 0);
 }
 void Display_OverlayLine(uint8_t row, const char *text, uint8_t highlighted)
 {
   if (row > 5) return;
+  lines[row].valid = 0;
   strncpy(overlays[row].text, text, sizeof(overlays[row].text) - 1);
   overlays[row].text[26] = '\0';
   overlays[row].active = 1; overlays[row].highlighted = highlighted;
@@ -99,6 +106,7 @@ void Display_OverlayLine(uint8_t row, const char *text, uint8_t highlighted)
 void Display_Preview(const Camera_Frame_t *frame)
 {
   if (!frame || !frame->rgb565_be || !frame->width || !frame->height) return;
+  memset(lines, 0, sizeof(lines));
   /* Заполнение экрана с центральной обрезкой, без растяжения пропорций. */
   unsigned crop_width = frame->width, crop_height = frame->height;
   if (crop_width * 80 > crop_height * 160) crop_width = crop_height * 160 / 80;

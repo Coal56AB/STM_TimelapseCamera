@@ -16,6 +16,7 @@ typedef struct
   uint32_t duration_seconds;
   uint8_t wifi_ready;
   const char *wifi_ssid, *wifi_password;
+  const char *wifi_status;
 } UI_View_t;
 void UI_Init(UI_t *ui);
 UI_Action_t UI_Process(UI_t *ui, Button_Event_t event);

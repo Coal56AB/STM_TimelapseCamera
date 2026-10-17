@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "UsbSerial.h"
 
 struct FileReply {
   uint32_t token = 0;
@@ -13,12 +14,14 @@ struct FileReply {
 class CameraLink {
  public:
   void begin();
-  void update(bool wifiEnabled);
+  void update(bool wifiEnabled, const char *wifiStatus = nullptr);
   bool wifiRequested() const { return requested_; }
   bool setTime(uint32_t utc, int16_t offsetMinutes);
   bool fileCommand(const char *operation, uint8_t *data, size_t capacity, FileReply &reply);
+  void reportTransfer(const char *status);
  private:
   void handleCommand();
+  UsbSerial usb_;
   char line_[96] = {};
   size_t length_ = 0;
   uint32_t nextState_ = 0, lastReply_ = 0, sequence_ = 0, pending_ = 0;
@@ -29,4 +32,7 @@ class CameraLink {
   size_t capacity_ = 0, remaining_ = 0, received_ = 0;
   bool fileDone_ = false, copyPayload_ = false;
   bool fileWaiting_ = false;
+  const char *wifiStatus_ = "OFF";
+  char transferStatus_[27] = {};
+  uint32_t transferSeen_ = 0;
 };

@@ -8,7 +8,7 @@ void App::begin() {
 }
 
 void App::update() {
-  link_.update(network_.enabled());
+  link_.update(network_.enabled(), network_.status());
   network_.setEnabled(link_.wifiRequested());
   web_.update(network_.enabled());
   delay(1);

@@ -99,12 +99,30 @@ void Web::download() {
     "Content-Disposition: attachment; filename=\"%s\"\r\nAccept-Ranges: none\r\nConnection: close\r\n\r\n",
     codec == 2 ? "video/mp4" : "video/x-msvideo", (unsigned long long)total, filename);
   server_.client().setTimeout(2);
+  server_.client().setNoDelay(true);
   bool ok = writeClient((const uint8_t *)header, (size_t)length);
+  uint32_t sampleAt = millis(), usbMs = 0, httpMs = 0, sampleBytes = 0;
   while (ok && position < total && server_.client().connected() && link_.wifiRequested()) {
     snprintf(command, sizeof(command), "READ %lu %llu", (unsigned long)token, (unsigned long long)position);
+    uint32_t started = millis();
     ok = link_.fileCommand(command, block_, sizeof(block_), reply) && reply.token == token &&
          reply.size == total && reply.codec == codec && reply.length && reply.length <= total - position;
-    if (ok) { ok = writeClient(block_, reply.length); position += reply.length; }
+    usbMs += millis() - started;
+    if (ok) {
+      started = millis(); ok = writeClient(block_, reply.length); httpMs += millis() - started;
+      if (!ok) break;
+      position += reply.length; sampleBytes += reply.length;
+      if (millis() - sampleAt >= 1000 || position == total) {
+        char speed[27];
+        unsigned long usb = (uint64_t)sampleBytes * 1000 / (1024ULL * (usbMs ? usbMs : 1));
+        unsigned long http = (uint64_t)sampleBytes * 1000 / (1024ULL * (httpMs ? httpMs : 1));
+        if (usb > 99999) usb = 99999;
+        if (http > 99999) http = 99999;
+        snprintf(speed, sizeof(speed), "USB %luK HTTP %luK", usb, http);
+        link_.reportTransfer(speed);
+        sampleAt = millis(); usbMs = httpMs = sampleBytes = 0;
+      }
+    }
   }
   snprintf(command, sizeof(command), "CLOSE %lu", (unsigned long)token);
   link_.fileCommand(command, nullptr, 0, reply);

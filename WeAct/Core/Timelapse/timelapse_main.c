@@ -261,7 +261,7 @@ void Timelapse_Process(void)
       Timelapse_Resolutions[app.config.resolution][0], Timelapse_Resolutions[app.config.resolution][1],
       app.recording.active, message, Timelapse_Fragments[app.config.fragment],
       app.recording.frames / TIMELAPSE_PLAYBACK_FPS,
-      app.esp_wifi, EspControl_Ssid(), EspControl_Password()};
+      app.esp_wifi, EspControl_Ssid(), EspControl_Password(), EspControl_WifiStatus()};
     UI_Draw(&app.ui, &view);
     app.last_ui = Board_Time();
   }

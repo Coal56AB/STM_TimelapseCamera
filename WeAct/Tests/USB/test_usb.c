@@ -8,9 +8,13 @@ static USBH_ClassTypeDef cls = {&cdc};
 USBH_HandleTypeDef hUsbHostHS = {&cls, {1}};
 ApplicationTypeDef Appli_state;
 static uint32_t tick, resets, restarts, received;
+static unsigned processed, complete_after;
 static uint8_t *rx;
 uint32_t HAL_GetTick(void) { return tick; }
-USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *h) { (void)h; return USBH_OK; }
+USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *h) {
+  if (++processed == complete_after) { cdc.TxDataLength = 0; USBH_CDC_TransmitCallback(h); }
+  return USBH_OK;
+}
 USBH_StatusTypeDef USBH_ReEnumerate(USBH_HandleTypeDef *h) { (void)h; ++resets; return USBH_OK; }
 USBH_StatusTypeDef USBH_Stop(USBH_HandleTypeDef *h) { (void)h; return USBH_OK; }
 USBH_StatusTypeDef USBH_DeInit(USBH_HandleTypeDef *h) { (void)h; return USBH_OK; }
@@ -38,5 +42,10 @@ int main(void)
   Appli_state = APPLICATION_READY; tick = UINT32_MAX - 500; assert(!UsbLink_ReadLine(line));
   tick += 7999; assert(!UsbLink_ReadLine(line) && resets == 2);
   tick += 1; assert(!UsbLink_ReadLine(line) && resets == 3);
-  puts("PASS: CDC stalled TX recovery, progress timeout, enumeration restart, RX silence and tick wrap");
+  Appli_state = APPLICATION_READY; assert(!UsbLink_ReadLine(line));
+  assert(UsbLink_SendLine("WIFI 1\n"));
+  complete_after = processed + 200;
+  assert(!UsbLink_ReadLine(line) && processed == complete_after);
+  assert(UsbLink_SendLine("WIFI 1\n")); // Completed without waiting for another application iteration.
+  puts("PASS: CDC continuous servicing, stalled TX recovery, progress timeout, enumeration restart, RX silence and tick wrap");
 }

@@ -54,7 +54,10 @@ static void ButtonTests(void)
   ui.screen = UI_MERGING; assert(UI_Process(&ui, BUTTON_DOUBLE) == UI_CANCEL);
 }
 void Display_Clear(void) { }
-void Display_Line(uint8_t row, const char *text, uint8_t selected) { (void)row; (void)text; (void)selected; }
+static char screen_lines[6][40];
+void Display_Line(uint8_t row, const char *text, uint8_t selected) {
+  (void)selected; assert(row < 6); snprintf(screen_lines[row], sizeof(screen_lines[row]), "%s", text);
+}
 static char status_line[40];
 void Display_OverlayLine(uint8_t row, const char *text, uint8_t highlighted)
 {
@@ -70,6 +73,12 @@ static void StatusTests(void)
   UI_Draw(&ui, &view); assert(!strcmp(status_line, "REC 05:01 #7525"));
   view.duration_seconds = 3661; view.frames = 91525;
   UI_Draw(&ui, &view); assert(!strcmp(status_line, "REC 01:01:01 #91525"));
+  ui.screen = UI_WIFI_SCREEN; view.wifi_status = "ERROR: DHCP";
+  UI_Draw(&ui, &view);
+  assert(!strcmp(screen_lines[0], "WIFI: NOT READY") && !strcmp(screen_lines[4], "ERROR: DHCP"));
+  view.wifi_ready = 1; view.wifi_status = "USB 20K HTTP 800K";
+  UI_Draw(&ui, &view);
+  assert(!strcmp(screen_lines[0], "WIFI: ON") && !strcmp(screen_lines[4], "USB 20K HTTP 800K"));
 }
 static void Fresh(void)
 {

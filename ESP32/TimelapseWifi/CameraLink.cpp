@@ -4,9 +4,7 @@
 #include <string.h>
 
 void CameraLink::begin() {
-  Serial.setRxBufferSize(32768);
-  Serial.begin(115200);
-  Serial.setTxTimeoutMs(50);
+  usb_.begin();
 }
 
 void CameraLink::handleCommand() {
@@ -37,21 +35,22 @@ void CameraLink::handleCommand() {
     rejected_ = true;
 }
 
-void CameraLink::update(bool wifiEnabled) {
+void CameraLink::update(bool wifiEnabled, const char *wifiStatus) {
   actual_ = wifiEnabled;
-  while (Serial.available()) {
+  if (wifiStatus) wifiStatus_ = wifiStatus;
+  while (usb_.available()) {
     if (remaining_) {
-      size_t count = (size_t)Serial.available();
+      size_t count = (size_t)usb_.available();
       if (count > remaining_) count = remaining_;
       uint8_t discard[64];
       if (!copyPayload_ && count > sizeof(discard)) count = sizeof(discard);
-      count = Serial.read(copyPayload_ ? payload_ + received_ : discard, count);
+      count = usb_.read(copyPayload_ ? payload_ + received_ : discard, count);
       if (!count || count > remaining_) break;
       received_ += count; remaining_ -= count;
       if (!remaining_ && copyPayload_) fileDone_ = true;
       continue;
     }
-    char byte = (char)Serial.read();
+    char byte = (char)usb_.read();
     if (byte == '\n') {
       if (!discard_ && length_) { line_[length_] = 0; handleCommand(); }
       length_ = 0; discard_ = false;
@@ -69,16 +68,27 @@ void CameraLink::update(bool wifiEnabled) {
   }
   if ((int32_t)(now - nextState_) >= 0) {
     const char *state = actual_ ? "STATE 1\n" : "STATE 0\n";
-    Serial.write((const uint8_t *)state, strlen(state));
+    usb_.write((const uint8_t *)state, strlen(state));
     if (!fileWaiting_) {
       char info[80];
       int length = snprintf(info, sizeof(info), "APSSID %s\n", WIFI_SSID);
-      Serial.write((const uint8_t *)info, length);
+      usb_.write((const uint8_t *)info, length);
       length = snprintf(info, sizeof(info), "APPASS %s\n", WIFI_PASSWORD);
-      Serial.write((const uint8_t *)info, length);
+      usb_.write((const uint8_t *)info, length);
+      const char *status = actual_ && *transferStatus_ && now - transferSeen_ < 3000 ? transferStatus_ : wifiStatus_;
+      length = snprintf(info, sizeof(info), "APINFO %.26s\n", status);
+      usb_.write((const uint8_t *)info, length);
     }
     nextState_ = now + LINK_STATE_INTERVAL_MS;
   }
+}
+
+void CameraLink::reportTransfer(const char *status) {
+  snprintf(transferStatus_, sizeof(transferStatus_), "%.26s", status);
+  transferSeen_ = millis();
+  char info[40];
+  int size = snprintf(info, sizeof(info), "APINFO %s\n", transferStatus_);
+  usb_.write((const uint8_t *)info, size);
 }
 
 bool CameraLink::setTime(uint32_t utc, int16_t offsetMinutes) {
@@ -89,7 +99,7 @@ bool CameraLink::setTime(uint32_t utc, int16_t offsetMinutes) {
   char request[64];
   int count = snprintf(request, sizeof(request), "TIME %lu %lu %d\n",
                        (unsigned long)pending_, (unsigned long)utc, offsetMinutes);
-  if (Serial.write((const uint8_t *)request, count) != (size_t)count) {
+  if (usb_.write((const uint8_t *)request, count) != (size_t)count) {
     pending_ = 0;
     return false;
   }
@@ -110,10 +120,10 @@ bool CameraLink::fileCommand(const char *operation, uint8_t *data, size_t capaci
   char request[96];
   int count = snprintf(request, sizeof(request), "FILES %lu %s\n", (unsigned long)pending_, operation);
   bool sent = count > 0 && (size_t)count < sizeof(request) &&
-              Serial.write((const uint8_t *)request, count) == (size_t)count;
+              usb_.write((const uint8_t *)request, count) == (size_t)count;
   uint32_t started = millis();
   while (sent && !fileDone_ && requested_ && millis() - started < 10000) {
-    update(actual_); if (!Serial.available() && !fileDone_) delay(1);
+    update(actual_); if (!fileDone_) usb_.wait();
   }
   pending_ = 0; payload_ = nullptr; copyPayload_ = false; fileWaiting_ = false;
   if (!fileDone_) {

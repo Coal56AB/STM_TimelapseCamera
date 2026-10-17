@@ -14,5 +14,7 @@ static_assert(sizeof(WIFI_SSID) <= 33, "Wi-Fi SSID must fit 32 bytes");
 static_assert(sizeof(WIFI_PASSWORD) >= 9 && sizeof(WIFI_PASSWORD) <= 64, "Wi-Fi password must contain 8 to 63 characters");
 constexpr uint8_t WIFI_CHANNEL = 1;
 constexpr uint8_t WIFI_MAX_CLIENTS = 4;
+// Quarter-dBm units: 34 = 8.5 dBm. Applied and checked after every radio start.
+constexpr int8_t WIFI_TX_POWER_QDBM = 34;
 constexpr uint32_t LINK_STATE_INTERVAL_MS = 1000;
 constexpr uint32_t LINK_TIMEOUT_MS = 5000;

@@ -6,8 +6,11 @@
 #include "download.h"
 #include "media_memory.h"
 static char ssid[33], password[64];
+static char wifi_status[27];
+static uint32_t status_seen;
 const char *EspControl_Ssid(void) { return ssid; }
 const char *EspControl_Password(void) { return password; }
+const char *EspControl_WifiStatus(void) { return wifi_status; }
 
 uint8_t EspControl_Process(Clock_t *clock, uint8_t wifi_requested, uint8_t sd_ready, uint32_t now)
 {
@@ -16,6 +19,7 @@ uint8_t EspControl_Process(Clock_t *clock, uint8_t wifi_requested, uint8_t sd_re
   static Download_t download;
   uint8_t *payload = Media_Memory;
   char request[96], response[96];
+  if (!wifi_requested || now - status_seen >= 3000) wifi_status[0] = 0;
   Download_Process(&download, wifi_requested && sd_ready, now);
   if (UsbLink_ReadLine(request))
   {
@@ -25,6 +29,13 @@ uint8_t EspControl_Process(Clock_t *clock, uint8_t wifi_requested, uint8_t sd_re
     {
       seen = now; wifi = (uint8_t)state;
       snprintf(response, sizeof(response), "WIFI %u\n", wifi_requested != 0);
+    }
+    else if (!strncmp(request, "APINFO ", 7))
+    {
+      size_t length = strlen(request + 7);
+      if (wifi_requested && length < sizeof(wifi_status))
+      { memcpy(wifi_status, request + 7, length + 1); status_seen = now; }
+      return wifi_requested && wifi && now - seen < 3000;
     }
     else if (!strncmp(request, "APSSID ", 7) || !strncmp(request, "APPASS ", 7))
     {

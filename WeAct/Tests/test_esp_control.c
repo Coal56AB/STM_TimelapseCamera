@@ -29,8 +29,13 @@ int main(void)
   assert(!EspControl_Process(&clock, 1, 1, 1000)); assert(!strcmp(sent, "WIFI 1\n"));
   incoming = "STATE 1";
   assert(EspControl_Process(&clock, 1, 1, 2000));
+  incoming = "APINFO ERROR: DHCP"; EspControl_Process(&clock, 1, 1, 2001);
+  assert(!strcmp(EspControl_WifiStatus(), "ERROR: DHCP"));
+  incoming = "APINFO USB 20K HTTP 800K"; EspControl_Process(&clock, 1, 1, 2002);
+  assert(!strcmp(EspControl_WifiStatus(), "USB 20K HTTP 800K"));
   assert(EspControl_Process(&clock, 1, 1, 4999));
   assert(!EspControl_Process(&clock, 1, 1, 5000));
+  EspControl_Process(&clock, 1, 1, 5002); assert(!*EspControl_WifiStatus());
   incoming = "STATE 1";
   assert(!EspControl_Process(&clock, 0, 1, 6000)); assert(!strcmp(sent, "WIFI 0\n"));
   incoming = "TIME 4 946684800 180";

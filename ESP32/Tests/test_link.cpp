@@ -4,17 +4,34 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include "driver/usb_serial_jtag.h"
 TestSerial Serial;
 static CameraLink link;
 static uint32_t tick;
 static bool ssidSent, passwordSent;
+static bool statusSent;
+static bool driverFail, transferSent, txPrimed;
+void usb_serial_jtag_ll_txfifo_flush() { txPrimed = true; }
 uint32_t millis() { return tick; }
 void delay(unsigned ms) { tick += ms; Serial.quota = 64; }
+int usb_serial_jtag_driver_install(usb_serial_jtag_driver_config_t *config) {
+  txPrimed = false;
+  assert(Serial.ended && config->tx_buffer_size == 2048 && config->rx_buffer_size == 32768); return driverFail ? -1 : ESP_OK;
+}
+int usb_serial_jtag_read_bytes(void *data, uint32_t size, unsigned ticks) {
+  if (!Serial.available() && ticks) delay(ticks);
+  return (int)Serial.read((uint8_t *)data, size);
+}
+int usb_serial_jtag_write_bytes(const void *data, size_t size, unsigned ticks) {
+  assert(txPrimed && ticks == 50); return (int)Serial.write((const uint8_t *)data, size);
+}
 size_t TestSerial::write(const uint8_t *data, size_t size)
 {
   std::string command((const char *)data, size);
   if (command == std::string("APSSID ") + WIFI_SSID + "\n") ssidSent = true;
   if (command == std::string("APPASS ") + WIFI_PASSWORD + "\n") passwordSent = true;
+  if (command == "APINFO STARTING\n") statusSent = true;
+  if (command == "APINFO USB 20K HTTP 800K\n") transferSent = true;
   unsigned long id;
   if (sscanf(command.c_str(), "TIME %lu", &id) == 1)
   {
@@ -47,9 +64,12 @@ static void Enable()
 }
 int main()
 {
+  driverFail = true; UsbSerial failed; uint8_t byte;
+  assert(!failed.begin() && !failed.available() && failed.read() == -1);
+  assert(!failed.read(&byte, 1) && !failed.write(&byte, 1)); failed.wait(); driverFail = false;
   link.begin();
   assert(!link.wifiRequested());
-  link.update(false); assert(ssidSent && passwordSent);
+  link.update(false, "STARTING"); assert(ssidSent && passwordSent && statusSent);
   assert(!link.setTime(946684800, 180));
   Serial.rx = "WIFI "; link.update(false);
   assert(!link.wifiRequested());
@@ -80,6 +100,13 @@ int main()
   assert(!memcmp(payload + 100, "WIFI 0\n", 7) && link.wifiRequested());
   for (unsigned i = 0; i < sizeof(payload); ++i)
     if (i < 100 || i >= 107) assert(payload[i] == i % 256);
+  for (unsigned quota : {1U, 63U, 65U, 1024U, 4096U}) {
+    Serial.quota = quota;
+    assert(link.fileCommand("READ 7 0", payload, sizeof(payload), reply));
+    for (unsigned i = 0; i < sizeof(payload); ++i)
+      if (i < 100 || i >= 107) assert(payload[i] == i % 256);
+  }
+  link.reportTransfer("USB 20K HTTP 800K"); assert(transferSent);
   Serial.reply_mode = 6; assert(!link.fileCommand("OPEN 9 0", nullptr, 0, reply));
   Serial.reply_mode = 7; assert(link.fileCommand("CLOSE 7", nullptr, 0, reply));
   assert(reply.token == 8 && link.wifiRequested());

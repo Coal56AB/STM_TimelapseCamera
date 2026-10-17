@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string>
+#include <cstring>
 uint32_t millis();
 void delay(unsigned ms);
 struct TestSerial
@@ -10,6 +11,8 @@ struct TestSerial
   std::string rx;
   int reply_mode = 0;
   unsigned quota = 64;
+  bool ended = false;
+  void end() { ended = true; }
   void setRxBufferSize(unsigned) {}
   void begin(unsigned) {}
   void setTxTimeoutMs(unsigned) {}

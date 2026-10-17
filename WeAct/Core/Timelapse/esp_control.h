@@ -5,4 +5,5 @@
 uint8_t EspControl_Process(Clock_t *clock, uint8_t wifi_requested, uint8_t sd_ready, uint32_t now);
 const char *EspControl_Ssid(void);
 const char *EspControl_Password(void);
+const char *EspControl_WifiStatus(void);
 #endif

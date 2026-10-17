@@ -45,8 +45,11 @@ int UsbLink_ReadLine(char line[96])
     USBH_ReEnumerate(&hUsbHostHS);
     return 0;
   }
-  /* Advance bulk packet states before returning to slower application work. */
-  for (unsigned i = 0; tx_pending && i < 32; ++i) USBH_Process(&hUsbHostHS);
+  /* Let IRQs finish packets while servicing CDC continuously for at most 1 ms.
+   * A fixed small iteration count can expire before even one packet reaches the bus. */
+  uint32_t started = HAL_GetTick();
+  for (unsigned i = 0; tx_pending && i < 32768 && HAL_GetTick() - started < 1; ++i)
+    USBH_Process(&hUsbHostHS);
   if (tx_pending) return 0;
   while (cursor < received)
   {

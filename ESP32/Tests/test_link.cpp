@@ -4,27 +4,14 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
-#include "driver/usb_serial_jtag.h"
 TestSerial Serial;
 static CameraLink link;
 static uint32_t tick;
 static bool ssidSent, passwordSent;
 static bool statusSent;
-static bool driverFail, transferSent, txPrimed;
-void usb_serial_jtag_ll_txfifo_flush() { txPrimed = true; }
+static bool transferSent;
 uint32_t millis() { return tick; }
 void delay(unsigned ms) { tick += ms; Serial.quota = 64; }
-int usb_serial_jtag_driver_install(usb_serial_jtag_driver_config_t *config) {
-  txPrimed = false;
-  assert(Serial.ended && config->tx_buffer_size == 2048 && config->rx_buffer_size == 32768); return driverFail ? -1 : ESP_OK;
-}
-int usb_serial_jtag_read_bytes(void *data, uint32_t size, unsigned ticks) {
-  if (!Serial.available() && ticks) delay(ticks);
-  return (int)Serial.read((uint8_t *)data, size);
-}
-int usb_serial_jtag_write_bytes(const void *data, size_t size, unsigned ticks) {
-  assert(txPrimed && ticks == 50); return (int)Serial.write((const uint8_t *)data, size);
-}
 size_t TestSerial::write(const uint8_t *data, size_t size)
 {
   std::string command((const char *)data, size);
@@ -64,10 +51,12 @@ static void Enable()
 }
 int main()
 {
-  driverFail = true; UsbSerial failed; uint8_t byte;
+  Serial.allocationFailed = true; UsbSerial failed; uint8_t byte;
   assert(!failed.begin() && !failed.available() && failed.read() == -1);
-  assert(!failed.read(&byte, 1) && !failed.write(&byte, 1)); failed.wait(); driverFail = false;
+  assert(!failed.read(&byte, 1) && !failed.write(&byte, 1)); failed.wait(); Serial.allocationFailed = false;
   link.begin();
+  assert(!Serial.ended && Serial.rxSize == 32768 && Serial.txSize == 2048 && Serial.baud == 115200 && Serial.txTimeout == 50);
+  Serial.unavailable = true; link.update(false, "STARTING"); assert(!link.wifiRequested()); Serial.unavailable = false;
   assert(!link.wifiRequested());
   link.update(false, "STARTING"); assert(ssidSent && passwordSent && statusSent);
   assert(!link.setTime(946684800, 180));
@@ -117,4 +106,5 @@ int main()
   puts("PASS: ESP USB framing, Wi-Fi off/start/stop/lease, timestamp ACK/error/timeout, tick wrap");
   puts("PASS: binary file blocks, 64-bit file size, stale replies, errors and truncated packet timeout");
   Serial.reply_mode = 9; assert(link.fileCommand("OPEN 1 0", payload, sizeof(payload), reply) && reply.codec == 2);
+  assert(!Serial.ended);
 }

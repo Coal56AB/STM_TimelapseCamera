@@ -12,6 +12,4 @@ class UsbSerial {
   void wait();
  private:
   bool ready_ = false;
-  uint8_t buffered_[1024];
-  size_t position_ = 0, length_ = 0;
 };

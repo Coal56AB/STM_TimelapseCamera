@@ -12,11 +12,14 @@ struct TestSerial
   int reply_mode = 0;
   unsigned quota = 64;
   bool ended = false;
+  bool allocationFailed = false, unavailable = false;
+  unsigned rxSize = 0, txSize = 0, baud = 0, txTimeout = 0;
   void end() { ended = true; }
-  void setRxBufferSize(unsigned) {}
-  void begin(unsigned) {}
-  void setTxTimeoutMs(unsigned) {}
-  int available() { return (int)(rx.size() < quota ? rx.size() : quota); }
+  size_t setRxBufferSize(unsigned size) { rxSize = size; return allocationFailed ? 0 : size; }
+  size_t setTxBufferSize(unsigned size) { txSize = size; return allocationFailed ? 0 : size; }
+  void begin(unsigned value) { baud = value; }
+  void setTxTimeoutMs(unsigned value) { txTimeout = value; }
+  int available() { return unavailable ? -1 : (int)(rx.size() < quota ? rx.size() : quota); }
   int read() { --quota; char c = rx[0]; rx.erase(0, 1); return c; }
   size_t read(uint8_t *buffer, size_t size) {
     size_t count = (size_t)available(); if (count > size) count = size;
